@@ -9,11 +9,21 @@
   var pending = new Map();
   var sequence = 0;
 
+  /// 描述错误：附带前几层调用栈，便于定位插件内部的异常
   function describe(error) {
     if (error === null || error === undefined) return "未知错误";
     if (typeof error === "string") return error;
-    if (error && error.message) return String(error.message);
-    return String(error);
+
+    var message = error.message ? String(error.message) : String(error);
+    if (error.stack) {
+      var frames = String(error.stack)
+        .split("\n")
+        .slice(1, 5)
+        .map(function (line) { return line.trim().replace(/^at\s+/, ""); })
+        .filter(Boolean);
+      if (frames.length > 0) message += " {" + frames.join(" ← ") + "}";
+    }
+    return message;
   }
 
   function toBytes(input) {
