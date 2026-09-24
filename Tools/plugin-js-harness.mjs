@@ -22,6 +22,18 @@ import {
   randomUUID,
   timingSafeEqual,
 } from "node:crypto";
+import { spawnSync } from "node:child_process";
+
+// Node 的 fetch 默认不读 HTTP_PROXY，而 NODE_USE_ENV_PROXY 只在启动时生效。
+// 检测到本机配置了代理就带上它重启一次，这样在 Clash 之类环境下直接跑即可。
+if (!process.env.NODE_USE_ENV_PROXY && !process.env.HARNESS_REEXEC
+  && (process.env.HTTP_PROXY || process.env.HTTPS_PROXY)) {
+  const result = spawnSync(process.execPath, process.argv.slice(1), {
+    stdio: "inherit",
+    env: { ...process.env, NODE_USE_ENV_PROXY: "1", HARNESS_REEXEC: "1" },
+  });
+  process.exit(result.status ?? 1);
+}
 
 /// 用法：
 ///   node Tools/plugin-js-harness.mjs                                 跑 JS 层自检
