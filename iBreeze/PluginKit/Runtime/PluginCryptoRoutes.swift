@@ -195,12 +195,24 @@ enum PluginCryptoRoutes {
         var data = Data()
         data.reserveCapacity(items.count)
         for item in items {
-            guard let value = item as? Int, (0...255).contains(value) else {
+            guard let byte = byteValue(item) else {
                 throw PluginError.invalidPayload("参数 \(name) 的每个字节必须在 0-255 之间")
             }
-            data.append(UInt8(value))
+            data.append(byte)
         }
         return data
+    }
+
+    /// 字节可能来自 JSON 数字（NSNumber）、Int，或 Swift 侧直接传的 UInt8
+    private static func byteValue(_ value: Any) -> UInt8? {
+        if let number = value as? NSNumber {
+            let int = number.intValue
+            return (0...255).contains(int) ? UInt8(int) : nil
+        }
+        if let number = value as? Double {
+            return number == number.rounded() && (0...255).contains(number) ? UInt8(number) : nil
+        }
+        return nil
     }
 
     private static func optionalBytes(_ args: [Any], _ index: Int) throws -> Data? {
@@ -223,10 +235,10 @@ enum PluginCryptoRoutes {
     }
 
     private static func integer(_ args: [Any], _ index: Int, _ name: String) throws -> Int {
-        guard args.indices.contains(index), let value = args[index] as? Int else {
+        guard args.indices.contains(index), let value = args[index] as? NSNumber else {
             throw PluginError.invalidPayload("参数 \(name) 必须是整数")
         }
-        return value
+        return value.intValue
     }
 
     // MARK: - 编码

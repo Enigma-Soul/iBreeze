@@ -86,7 +86,7 @@ struct PluginCryptoRouteTests {
     @Test("异步路由：字节数组进、十六进制出")
     func asyncByteRoutes() async throws {
         let bridge = makeBridge()
-        let result = try await bridge.dispatch(route: "crypto.sha256", argsJSON: "[104,101,108,108,111]")
+        let result = try await bridge.dispatch(route: "crypto.sha256", argsJSON: "[[104,101,108,108,111]]")
 
         #expect(result == #""2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824""#)
     }
