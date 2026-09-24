@@ -1,0 +1,69 @@
+name: Build iOS
+
+on:
+  push:
+    branches: [develop, main]
+  pull_request:
+    branches: [develop, main]
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: 编译并打包未签名 IPA
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Xcode 版本
+        run: xcodebuild -version
+
+      - name: 安装 XcodeGen
+        run: brew install xcodegen
+
+      - name: 生成 Xcode 工程
+        run: xcodegen generate
+
+      - name: 运行单元测试
+        run: |
+          set -o pipefail
+          DEVICE=$(xcrun simctl list devices available | grep -oE '^ +iPhone [^(]*' | head -1 | sed 's/^ *//; s/ *$//')
+          echo "使用模拟器：$DEVICE"
+          # TEST_RUNNER_ 前缀的变量会以去掉前缀的形式传进测试进程，用于打开真实插件冒烟测试
+          TEST_RUNNER_IBREEZE_SMOKE=1 TEST_RUNNER_IBREEZE_SMOKE_NETWORK=1 xcodebuild test \
+            -project iBreeze.xcodeproj \
+            -scheme iBreeze \
+            -destination "platform=iOS Simulator,name=$DEVICE" \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tee "$RUNNER_TEMP/test.log" | { grep -E "Test run|✔|✘|error:|TEST (SUCCEEDED|FAILED)" | tail -40 || true; }
+
+      - name: 编译归档（不签名）
+        run: |
+          xcodebuild archive \
+            -project iBreeze.xcodeproj \
+            -scheme iBreeze \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/iBreeze.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            -quiet
+
+      - name: 打包未签名 IPA
+        run: |
+          cd "$RUNNER_TEMP"
+          mkdir -p Payload
+          cp -R iBreeze.xcarchive/Products/Applications/iBreeze.app Payload/
+          zip -qry iBreeze-unsigned.ipa Payload
+          ls -lh iBreeze-unsigned.ipa
+
+      - name: 上传 IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: iBreeze-unsigned-ipa
+          path: ${{ runner.temp }}/iBreeze-unsigned.ipa
+          if-no-files-found: error
