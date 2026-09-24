@@ -55,7 +55,7 @@ final class PluginHostBridge: @unchecked Sendable {
             return "null"
 
         // 宿主信息与工具
-        case "opencc.convert": return try Self.encode(convertChinese(args))
+        case "opencc.convert": return try Self.encode(Self.convertChinese(args))
         case "dart.getAppVersion": return try Self.encode(Self.appVersion)
         case "dart.getLocaleInfo": return try Self.encode(Self.localeInfoJSON())
         case "flutter.showToast":

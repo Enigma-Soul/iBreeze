@@ -215,7 +215,7 @@ enum PluginCrypto {
             }
         }
 
-        switch status {
+        switch Int(status) {
         case kCCSuccess: return output.prefix(produced)
         case kCCDecodeError, kCCAlignmentError: throw CryptoError.decryptionFailed
         default: throw CryptoError.operationFailed("CCCrypt 返回 \(status)")
