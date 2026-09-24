@@ -91,8 +91,10 @@ function handleRoute(route, args) {
         bodyBase64: body.toString("base64"),
       };
     }
-    // 自检模式用固定失败桩保证确定性；插件模式走真实网络
-    return PLUGIN_MODE ? httpRequest(args) : { ok: false, error: "本地桩：不发起真实网络请求" };
+    // 自检模式只允许访问本机（网络链路自检用），其余走固定失败桩保证确定性
+    const target = String(args[2] ?? "");
+    const isLocal = /^https?:\/\/(127\.0\.0\.1|localhost)(:|\/|$)/.test(target);
+    return PLUGIN_MODE || isLocal ? httpRequest(args) : { ok: false, error: "本地桩：不发起真实网络请求" };
   }
 
   switch (route) {
@@ -399,6 +401,74 @@ async function runHtmlChecks() {
   check("BreezeHtml: siblings", result.siblingCount === 1, String(result.siblingCount));
   check("BreezeHtml: each", result.eachCount === 4, String(result.eachCount));
   check("BreezeHtml: html", result.htmlHead === "<tr clas", String(result.htmlHead));
+}
+
+/// 网络链路自检：本地起一个 HTTP 服务，用自己写的插件跑完整的
+/// 「fetch → Response 读取 → BreezeHtml 解析」流程（不涉及任何第三方代码）
+const networkBundle = `
+module.exports = {
+  async parseHomepage({ url }) {
+    const res = await fetch(url);
+    const html = await res.text();
+    const $ = BreezeHtml.load(html);
+    return {
+      status: res.status,
+      ok: res.ok,
+      length: html.length,
+      items: $("td.gl1e a").map((i, el) => ({
+        href: $(el).attr("href"),
+        title: $(el).find("div").attr("title")
+      })).get(),
+      pages: $("td.gl2e").first().text().trim()
+    };
+  },
+  async parseBinary({ url }) {
+    const res = await fetch(url, { headers: { "x-rquickjs-host-offload-binary-v1": "1" } });
+    const buffer = await res.arrayBuffer();
+    return { byteLength: buffer.byteLength, head: Array.from(new Uint8Array(buffer).slice(0, 4)) };
+  }
+};
+`;
+
+const HOMEPAGE = `<!DOCTYPE html><html><head><title>Gallery</title></head><body>
+<table class="itg">
+<tr><td class="gl1e"><a href="/g/1/aaa/"><div title="Alpha"></div></a></td><td class="gl2e">120 pages</td></tr>
+<tr><td class="gl1e"><a href="/g/2/bbb/"><div title="Beta"></div></a></td><td class="gl2e">80 pages</td></tr>
+</table></body></html>`;
+
+async function runNetworkChecks() {
+  const { createServer } = await import("node:http");
+  const server = createServer((request, response) => {
+    if (request.url === "/image") {
+      response.writeHead(200, { "content-type": "image/png" });
+      response.end(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a]));
+      return;
+    }
+    response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    response.end(HOMEPAGE);
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const base = `http://127.0.0.1:${server.address().port}`;
+
+  const runtime = createRuntime();
+  runtime.load(networkBundle);
+
+  try {
+    const page = JSON.parse(await runtime.invoke("parseHomepage", { url: `${base}/` }));
+    check("网络: 状态码", page.status === 200, String(page.status));
+    check("网络: 正文长度", page.length > 100, String(page.length));
+    check("网络: 解析出条目", page.items.length === 2, JSON.stringify(page.items));
+    check("网络: 条目内容", page.items[0]?.title === "Alpha" && page.items[0]?.href === "/g/1/aaa/", JSON.stringify(page.items[0]));
+    check("网络: 文本读取", page.pages === "120 pages", String(page.pages));
+
+    const binary = JSON.parse(await runtime.invoke("parseBinary", { url: `${base}/image` }));
+    check("网络: 二进制读取", binary.byteLength === 6, String(binary.byteLength));
+    check("网络: 二进制内容", JSON.stringify(binary.head) === "[137,80,78,71]", JSON.stringify(binary.head));
+  } catch (error) {
+    check("网络链路", false, error.message);
+  } finally {
+    server.close();
+  }
 
   const failed = results.filter((item) => !item.ok);
   console.log(`\n${results.length - failed.length}/${results.length} 项通过`);
@@ -466,6 +536,7 @@ try {
 check("未实现 fnPath 报错", missingThrew);
 
 await runHtmlChecks();
+await runNetworkChecks();
 }
 
 if (PLUGIN_MODE) {

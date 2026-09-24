@@ -58,6 +58,21 @@ struct PluginSmokeTests {
         }
     }
 
+    /// 单纯走图片抓取：只经过「fetch → Uint8Array」，
+    /// 用来把问题范围缩到插件自己的请求包装（列表功能还叠了 axios 与解析）
+    @Test(
+        "抓取真实图片字节",
+        .enabled(if: ProcessInfo.processInfo.environment["IBREEZE_SMOKE_NETWORK"] == "1"),
+        .timeLimit(.minutes(2))
+    )
+    func fetchRealImage() async throws {
+        let (source, _) = try await installEhentai()
+        defer { Task { await source.shutdown() } }
+
+        let bytes = try await source.imageBytes(url: "https://e-hentai.org/favicon.ico")
+        #expect(bytes.count > 0, "没有拿到图片字节")
+    }
+
     /// 联网抓真实列表：站点可能对 CI 机房 IP 不友好，单独用环境变量控制
     @Test(
         "抓取真实列表",
