@@ -4,9 +4,9 @@ import Testing
 
 /// 真实插件冒烟测试：走网络下载 Breeze 生态的现成插件并跑通调用链。
 ///
-/// 默认不跑（本地无网络或不希望依赖外网），CI 通过 `TEST_RUNNER_IBREEZE_SMOKE=1` 打开。
-/// 它验证的是最容易出问题的地方：jsDelivr 下载、真实 bundle 在 JavaScriptCore 上装载、
-/// `getInfo` 契约解析，以及 `fetchImageBytes` 的二进制回传。
+/// 默认不跑，CI 通过 `TEST_RUNNER_IBREEZE_SMOKE=1` 打开。
+/// 它覆盖的是最容易出问题的地方：jsDelivr 下载、真实 bundle 在 JavaScriptCore
+/// 上装载、`getInfo` 契约解析，以及插件自身逻辑与错误回传。
 @Suite("真实插件冒烟", .enabled(if: ProcessInfo.processInfo.environment["IBREEZE_SMOKE"] == "1"))
 struct PluginSmokeTests {
     private static let ehentai = #"""
@@ -21,34 +21,66 @@ struct PluginSmokeTests {
     }
     """#
 
-    private func makeStore() -> PluginStore {
-        PluginStore(directory: URL(fileURLWithPath: NSTemporaryDirectory())
+    /// 安装一次跑多个断言，避免重复下载
+    private func installEhentai() async throws -> (PluginSource, InstalledPlugin) {
+        let store = PluginStore(directory: URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("ibreeze-smoke-\(UUID().uuidString)"))
-    }
-
-    @Test("下载并安装真实插件，再跑通 getInfo 与图片下载", .timeLimit(.minutes(3)))
-    func installRealPlugin() async throws {
-        let store = makeStore()
         let installer = PluginInstaller(store: store)
         let remote = try JSONDecoder().decode(RemotePlugin.self, from: Data(Self.ehentai.utf8))
 
         let plugin = try await installer.install(remote)
+        let source = PluginSource(plugin: plugin)
+        try await source.load(bundle: try store.bundle(for: plugin.uuid))
+        return (source, plugin)
+    }
+
+    @Test("下载安装真实插件并解析 getInfo", .timeLimit(.minutes(3)))
+    func installAndInspect() async throws {
+        let (source, plugin) = try await installEhentai()
+        defer { Task { await source.shutdown() } }
+
+        let remote = try JSONDecoder().decode(RemotePlugin.self, from: Data(Self.ehentai.utf8))
         #expect(plugin.uuid == remote.manifest.uuid)
         #expect(!plugin.version.isEmpty)
         #expect(!plugin.functions.isEmpty, "getInfo 没有返回功能入口")
-
-        // 用安装好的 bundle 建常驻运行时，验证真实插件的契约调用
-        let source = PluginSource(plugin: plugin)
-        try await source.load(bundle: try store.bundle(for: plugin.uuid))
 
         let info = try await source.info()
         #expect(info.uuid == remote.manifest.uuid)
         #expect(!info.name.isEmpty)
 
-        // fetchImageBytes 是通用抓取：拿一个稳定站点验证「插件 fetch → 宿主二进制回传」
-        let bytes = try await source.imageBytes(url: "https://example.com/")
-        #expect(bytes.count > 0, "图片字节为空")
+        // 插件的列表入口应能解析成列表场景（body.request.fnPath）
+        let scene = try #require(info.function?.first?.action.payload?.scene)
+        #expect(!scene.body.request.fnPath.isEmpty)
 
-        await source.shutdown()
+        // 插件自身的域名白名单会拒绝非图源地址，说明它的 JS 逻辑确实执行了
+        await #expect(throws: PluginError.self) {
+            _ = try await source.imageBytes(url: "https://example.com/")
+        }
+    }
+
+    /// 联网抓真实列表：站点可能对 CI 机房 IP 不友好，单独用环境变量控制
+    @Test(
+        "抓取真实列表",
+        .enabled(if: ProcessInfo.processInfo.environment["IBREEZE_SMOKE_NETWORK"] == "1"),
+        .timeLimit(.minutes(3))
+    )
+    func fetchRealList() async throws {
+        let (source, _) = try await installEhentai()
+        defer { Task { await source.shutdown() } }
+
+        let info = try await source.info()
+        let scene = try #require(info.function?.first?.action.payload?.scene)
+
+        let list = try await source.pagedList(
+            fnPath: scene.body.request.fnPath,
+            page: 1,
+            core: scene.body.request.core,
+            extern: scene.body.request.extern
+        )
+
+        #expect(!list.resolvedItems.isEmpty, "列表没有返回任何条目")
+        let first = try #require(list.resolvedItems.first)
+        #expect(!first.id.isEmpty)
+        #expect(!first.title.isEmpty)
     }
 }
