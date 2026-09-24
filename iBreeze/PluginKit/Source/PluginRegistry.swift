@@ -45,6 +45,11 @@ final class PluginRegistry {
         return source
     }
 
+    /// 已装载的插件源；不会触发装载
+    func cachedSource(for uuid: String) -> PluginSource? {
+        sources[uuid]
+    }
+
     /// 释放运行时（卸载或更新前调用）
     func close(uuid: String) async {
         await sources[uuid]?.shutdown()

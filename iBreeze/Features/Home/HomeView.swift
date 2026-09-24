@@ -2,6 +2,8 @@ import SwiftUI
 
 /// 首页：插件入口 + 浏览记录 + 插件源推荐漫画
 struct HomeView: View {
+    @Environment(PluginRegistry.self) private var registry
+
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -13,6 +15,7 @@ struct HomeView: View {
                 .padding(.vertical, AppTheme.Spacing.section)
             }
             .navigationTitle(AppTab.home.title)
+            .appNavigationDestinations()
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     NavigationLink {
@@ -24,9 +27,6 @@ struct HomeView: View {
                 }
             }
         }
+        .onAppear { registry.reload() }
     }
-}
-
-#Preview {
-    HomeView()
 }
