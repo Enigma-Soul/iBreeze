@@ -99,33 +99,44 @@ struct ReaderPage: View {
         }
         .navigationTitle(chapterName)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar { chapterToolbar }
         .task { if viewModel.pages.isEmpty { await viewModel.load() } }
+        .overlay(alignment: .bottom) { chapterBar }
         .overlay { emptyOverlay }
         .sensoryFeedback(.success, trigger: viewModel.chapterID)
+        .toolbarVisibility(.hidden, for: .bottomBar)
     }
 
-    @ToolbarContentBuilder
-    private var chapterToolbar: some ToolbarContent {
-        ToolbarItemGroup(placement: .bottomBar) {
-            Button {
-                guard let previous = viewModel.previousChapter else { return }
-                Task { await viewModel.switchTo(chapter: previous) }
-            } label: {
-                Label("上一章", systemImage: "chevron.left")
+    /// 悬浮章节切换条：液态玻璃质感，压在内容之上
+    @ViewBuilder
+    private var chapterBar: some View {
+        if !viewModel.pages.isEmpty {
+            HStack(spacing: 18) {
+                chapterButton(title: "上一章", systemImage: "chevron.left", chapter: viewModel.previousChapter)
+                Text(chapterName.isEmpty ? comicTitle : chapterName)
+                    .font(.footnote)
+                    .lineLimit(1)
+                    .frame(maxWidth: 160)
+                chapterButton(title: "下一章", systemImage: "chevron.right", chapter: viewModel.nextChapter)
             }
-            .disabled(viewModel.previousChapter == nil)
-
-            Spacer()
-
-            Button {
-                guard let next = viewModel.nextChapter else { return }
-                Task { await viewModel.switchTo(chapter: next) }
-            } label: {
-                Label("下一章", systemImage: "chevron.right")
-            }
-            .disabled(viewModel.nextChapter == nil)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 10)
+            .glassSurface(in: Capsule())
+            .padding(.bottom, 12)
         }
+    }
+
+    private func chapterButton(title: String, systemImage: String, chapter: ChapterSummary?) -> some View {
+        Button {
+            guard let chapter else { return }
+            Task { await viewModel.switchTo(chapter: chapter) }
+        } label: {
+            Label(title, systemImage: systemImage)
+                .labelStyle(.iconOnly)
+                .font(.body.weight(.semibold))
+                .frame(width: 32, height: 32)
+        }
+        .disabled(chapter == nil)
+        .accessibilityLabel(title)
     }
 
     @ViewBuilder

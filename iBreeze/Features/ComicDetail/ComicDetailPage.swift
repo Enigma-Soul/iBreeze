@@ -131,11 +131,8 @@ struct ComicDetailPage: View {
 
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, AppTheme.Spacing.page)
-        .padding(.top, AppTheme.Spacing.section)
-        .padding(.bottom, AppTheme.Spacing.section)
-        .background(AppTheme.cardBackground)
-        .clipShape(RoundedRectangle(cornerRadius: AppTheme.Radius.card, style: .continuous))
+        .padding(AppTheme.Spacing.page)
+        .glassSurface(in: RoundedRectangle(cornerRadius: AppTheme.Radius.card, style: .continuous))
         .padding(.horizontal, AppTheme.Spacing.page)
     }
 

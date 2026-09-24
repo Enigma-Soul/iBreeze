@@ -45,8 +45,7 @@ struct PluginRowSection: View {
                     .foregroundStyle(.secondary)
             }
             .frame(width: tileSize, height: tileSize)
-            .background(AppTheme.cardBackground)
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .glassSurface(in: RoundedRectangle(cornerRadius: 14, style: .continuous))
 
             Text(plugin.name)
                 .font(.caption2)
