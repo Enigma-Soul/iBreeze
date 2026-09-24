@@ -8,6 +8,9 @@ enum PluginJSLayer {
     /// 原生能力垫片，必须在 polyfill 之前
     private static let nativeShim = "10_ibreeze_native_shim"
 
+    /// BreezeHtml：插件赖以抓网页的 cheerio 子集，独立于 Breeze 的 polyfill
+    private static let htmlLayer = "20_ibreeze_html"
+
     /// 宿主能力垫片，必须在 99_exports 之后（否则会被清空）
     private static let hostShim = "90_ibreeze_host_shim"
 
@@ -26,8 +29,8 @@ enum PluginJSLayer {
         "99_exports"
     ]
 
-    /// 注入顺序：原生垫片 → Breeze polyfill → 宿主垫片
-    private static let scriptNames = [nativeShim] + breezePolyfills + [hostShim]
+    /// 注入顺序：原生垫片与 BreezeHtml → Breeze polyfill → 宿主垫片
+    private static let scriptNames = [nativeShim, htmlLayer] + breezePolyfills + [hostShim]
 
     /// 组装好的完整脚本，进程内只拼一次
     private static let assembled: String? = {

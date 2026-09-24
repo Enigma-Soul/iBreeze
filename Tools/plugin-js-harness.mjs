@@ -23,11 +23,18 @@ import {
   timingSafeEqual,
 } from "node:crypto";
 
+/// 用法：
+///   node Tools/plugin-js-harness.mjs                                 跑 JS 层自检
+///   node Tools/plugin-js-harness.mjs <bundle.cjs> <fnPath> [payload] 跑真实插件（走真实网络）
+const [bundlePath, fnPath, payloadJSON] = process.argv.slice(2);
+const PLUGIN_MODE = Boolean(bundlePath);
+
 const runtimeDir = join(dirname(fileURLToPath(import.meta.url)), "..", "iBreeze", "Resources", "PluginRuntime");
 
 /// 与 PluginJSLayer.swift 保持一致的注入顺序
 const INJECTION_ORDER = [
   "10_ibreeze_native_shim",
+  "20_ibreeze_html",
   "04_runtime_base_polyfills",
   "00_bootstrap",
   "05_structured_clone",
@@ -49,8 +56,45 @@ const bytes = (value) => Buffer.from(value ?? []);
 const digestPayload = (buffer) => ({ hex: buffer.toString("hex"), base64: buffer.toString("base64") });
 
 /// 宿主路由桩：与 PluginHostBridge 的行为保持最小一致
+/// 唯一异步的路由：真实网络请求
+async function httpRequest(args) {
+  const [, method, url, headers, bodyText, bodyBase64] = args;
+  const response = await fetch(url, {
+    method: method || "GET",
+    headers: headers ?? {},
+    body: bodyBase64 ? Buffer.from(bodyBase64, "base64") : bodyText ?? undefined,
+  });
+  const buffer = Buffer.from(await response.arrayBuffer());
+  return {
+    ok: true,
+    status: response.status,
+    statusText: response.statusText,
+    headers: Object.fromEntries(response.headers),
+    url: response.url,
+    bodyBase64: buffer.toString("base64"),
+  };
+}
+
 function handleRoute(route, args) {
   if (process.env.HARNESS_DEBUG) console.error("route:", route, JSON.stringify(args));
+
+  if (route === "http.request") {
+    // HARNESS_STUB_HTTP 指向本地文件时，直接把该文件当作响应体返回，全程不联网
+    if (process.env.HARNESS_STUB_HTTP) {
+      const body = readFileSync(process.env.HARNESS_STUB_HTTP);
+      return {
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        headers: { "content-type": "text/html; charset=utf-8" },
+        url: args[2],
+        bodyBase64: body.toString("base64"),
+      };
+    }
+    // 自检模式用固定失败桩保证确定性；插件模式走真实网络
+    return PLUGIN_MODE ? httpRequest(args) : { ok: false, error: "本地桩：不发起真实网络请求" };
+  }
+
   switch (route) {
     // 加密：与 PluginCryptoRoutes 的约定一致
     case "crypto.md5":
@@ -124,9 +168,10 @@ function handleRoute(route, args) {
       return null;
     case "load_plugin_config":
       return JSON.stringify({ ok: config.has(args[0]), value: config.get(args[0]) ?? args[1] ?? "" });
-    case "http.request":
-      // 本地不做真实网络：模拟连接失败，用于验证 fetch 的错误路径
-      return { ok: false, error: "本地桩：不发起真实网络请求" };
+    case "http.request": {
+      // 已在函数开头处理
+      return { ok: false, error: "unreachable" };
+    }
     default:
       throw new Error(`宿主未实现路由：${route}`);
   }
@@ -270,6 +315,97 @@ module.exports = {
 };
 `;
 
+/// 插件模式：装载真实 bundle 并调用指定 fnPath
+async function runPlugin() {
+  const runtime = createRuntime();
+  const startedAt = Date.now();
+  runtime.load(readFileSync(bundlePath, "utf8"));
+  console.log(`装载 ${bundlePath} 耗时 ${Date.now() - startedAt}ms`);
+
+  const target = fnPath || "getInfo";
+  const startedCall = Date.now();
+  try {
+    const raw = await runtime.invoke(target, payloadJSON ? JSON.parse(payloadJSON) : {});
+    const elapsed = Date.now() - startedCall;
+    console.log(`✔ ${target} 返回（${elapsed}ms）：`);
+    console.log(raw.length > 4000 ? `${raw.slice(0, 4000)}…（共 ${raw.length} 字节）` : raw);
+  } catch (error) {
+    console.log(`✘ ${target} 失败：${error.message}`);
+    process.exitCode = 1;
+  }
+}
+
+/// BreezeHtml 自检：用固定的 HTML 覆盖插件常用的 cheerio 子集
+const htmlBundle = `
+module.exports = {
+  parse() {
+    const html = [
+      '<div id="list">',
+      '<table class="itg"><tr class="r1">',
+      '<td class="gl1e"><a href="/g/1/x/"><div title="T1"></div></a></td>',
+      '<td class="gl2e">120 pages</td>',
+      '</tr><tr class="r2">',
+      '<td class="gl1e"><a href="/g/2/y/"><div title="T2"></div></a></td>',
+      '<td class="gl2e">80 pages</td>',
+      '</tr></table></div>'
+    ].join('');
+    const $ = BreezeHtml.load(html);
+    let eachCount = 0;
+    $("td").each(() => { eachCount += 1; });
+    return {
+      attr: $("a div").first().attr("title"),
+      href: $("a").attr("href"),
+      text: $("td").eq(1).text(),
+      closestText: $("a").first().closest("tr").find(".gl2e").text(),
+      count: $("td").length,
+      mapped: $("td").map((i, el) => $(el).attr("class")).get().join("|"),
+      filtered: $("td").filter(".gl1e").length,
+      hasAnchor: $("td").has("a").length,
+      nextText: $("td").first().next().text(),
+      parentIsTable: $("tr").parent().is("table"),
+      childrenCount: $("table").children().length,
+      sliced: $("td").slice(0, 2).length,
+      lastText: $("td").last().text(),
+      toArrayCount: $("td").toArray().length,
+      indexValue: $("td").eq(1).index(),
+      siblingCount: $("tr").first().siblings().length,
+      eachCount: eachCount,
+      htmlHead: $("table").html().slice(0, 8),
+      innerText: $("#list table tr.r2 td a div").text() === "" ? "empty" : "filled"
+    };
+  }
+};
+`;
+
+async function runHtmlChecks() {
+  const runtime = createRuntime();
+  runtime.load(htmlBundle);
+  const result = JSON.parse(await runtime.invoke("parse"));
+
+  check("BreezeHtml: attr", result.attr === "T1", String(result.attr));
+  check("BreezeHtml: text", result.text === "120 pages", String(result.text));
+  check("BreezeHtml: closest + find", result.closestText === "120 pages", String(result.closestText));
+  check("BreezeHtml: 选择器计数", result.count === 4, String(result.count));
+  check("BreezeHtml: map/get", result.mapped === "gl1e|gl2e|gl1e|gl2e", String(result.mapped));
+  check("BreezeHtml: filter", result.filtered === 2, String(result.filtered));
+  check("BreezeHtml: has", result.hasAnchor === 2, String(result.hasAnchor));
+  check("BreezeHtml: next", result.nextText === "120 pages", String(result.nextText));
+  check("BreezeHtml: parent + is", result.parentIsTable === true, String(result.parentIsTable));
+  check("BreezeHtml: children", result.childrenCount === 2, String(result.childrenCount));
+  check("BreezeHtml: slice", result.sliced === 2, String(result.sliced));
+  check("BreezeHtml: last", result.lastText === "80 pages", String(result.lastText));
+  check("BreezeHtml: toArray", result.toArrayCount === 4, String(result.toArrayCount));
+  check("BreezeHtml: index", result.indexValue === 1, String(result.indexValue));
+  check("BreezeHtml: siblings", result.siblingCount === 1, String(result.siblingCount));
+  check("BreezeHtml: each", result.eachCount === 4, String(result.eachCount));
+  check("BreezeHtml: html", result.htmlHead === "<tr clas", String(result.htmlHead));
+
+  const failed = results.filter((item) => !item.ok);
+  console.log(`\n${results.length - failed.length}/${results.length} 项通过`);
+  process.exit(failed.length === 0 ? 0 : 1);
+}
+
+async function runChecks() {
 const startedAt = Date.now();
 const runtime = createRuntime();
 runtime.load(runtimeBundle);
@@ -329,6 +465,11 @@ try {
 }
 check("未实现 fnPath 报错", missingThrew);
 
-const failed = results.filter((item) => !item.ok);
-console.log(`\n${results.length - failed.length}/${results.length} 项通过`);
-process.exit(failed.length === 0 ? 0 : 1);
+await runHtmlChecks();
+}
+
+if (PLUGIN_MODE) {
+  await runPlugin();
+} else {
+  await runChecks();
+}
