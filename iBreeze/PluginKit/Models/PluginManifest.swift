@@ -50,8 +50,14 @@ struct PluginAction: Codable, Hashable, Sendable {
 struct ComicListScene: Codable, Hashable, Sendable {
     var title: String
     var source: String
-    var body: Request
+    var body: Body
     var filter: Request?
+
+    /// 列表类型 + 取数请求
+    struct Body: Codable, Hashable, Sendable {
+        var type: String?
+        var request: Request
+    }
 
     struct Request: Codable, Hashable, Sendable {
         var fnPath: String

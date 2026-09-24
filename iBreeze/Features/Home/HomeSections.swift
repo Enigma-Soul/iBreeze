@@ -105,10 +105,10 @@ struct PluginEntriesSheet: View {
             guard let scene = payload.scene else { return nil }
             return .comicList(
                 sourceID: plugin.uuid,
-                fnPath: scene.body.fnPath,
+                fnPath: scene.body.request.fnPath,
                 title: scene.title,
-                core: scene.body.core,
-                extern: scene.body.extern
+                core: scene.body.request.core,
+                extern: scene.body.request.extern
             )
 
         case "openComicDetail":
