@@ -26,19 +26,15 @@ enum PluginJSLayer {
         "99_exports"
     ]
 
+    /// 注入顺序：原生垫片 → Breeze polyfill → 宿主垫片
+    private static let scriptNames = [nativeShim] + breezePolyfills + [hostShim]
+
     /// 组装好的完整脚本，进程内只拼一次
     private static let assembled: String? = {
-        guard let nativeShimSource = try? source(named: nativeShim),
-              let hostShimSource = try? source(named: hostShim)
-        else { return nil }
-
-        var parts = [nativeShimSource]
-        for name in breezePolyfills {
-            guard let polyfill = try? source(named: name) else { return nil }
-            parts.append(polyfill)
-        }
-        parts.append(hostShimSource)
-        return parts.joined(separator: "\n;\n")
+        let sources = scriptNames.compactMap { try? source(named: $0) }
+        // 缺任何一段都算打包出错，避免注入半个运行时
+        guard sources.count == scriptNames.count else { return nil }
+        return sources.joined(separator: "\n;\n")
     }()
 
     /// 完整注入脚本；资源缺失时抛错

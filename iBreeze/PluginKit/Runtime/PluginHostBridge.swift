@@ -6,15 +6,13 @@ import os
 /// 路由名与 breeze-plugin-kit 中的调用一一对应，返回值统一按 JSON 编码，
 /// JS 侧解析后即为插件看到的实际值。
 final class PluginHostBridge: @unchecked Sendable {
-    private let pluginID: String
     private let cache = PluginCache()
     private let config: PluginConfigStore
     private let httpClient = PluginHTTPClient()
     private let logger = Logger(subsystem: "com.enigma-soul.ibreeze", category: "PluginHost")
 
     init(pluginID: String) {
-        self.pluginID = pluginID
-        self.config = PluginConfigStore(pluginID: pluginID)
+        config = PluginConfigStore(pluginID: pluginID)
     }
 
     /// 异步路由
@@ -22,40 +20,27 @@ final class PluginHostBridge: @unchecked Sendable {
         let args = try Self.decodeArguments(argsJSON)
 
         switch route {
-        case "cache.get", "cache.get.sync":
-            guard let key = Self.string(args, at: 0) else { return "null" }
-            // 缓存里存的就是 JSON 文本，直接回传，避免再包一层字符串
-            return try (cache.get(key) ?? Self.rawJSON(args, at: 1))
-
-        case "cache.set", "cache.set.sync":
-            cache.set(try Self.requiredString(args, at: 0, route: route), value: try Self.rawJSON(args, at: 1))
-            return "null"
-
-        case "cache.set_if_absent":
-            let inserted = cache.setIfAbsent(
-                try Self.requiredString(args, at: 0, route: route),
-                value: try Self.rawJSON(args, at: 1)
-            )
-            return try Self.encode(inserted)
-
-        case "cache.compare_and_set":
-            let swapped = cache.compareAndSet(
-                try Self.requiredString(args, at: 0, route: route),
-                expected: try Self.rawJSON(args, at: 1),
-                next: try Self.rawJSON(args, at: 2)
-            )
-            return try Self.encode(swapped)
-
+        // 进程内缓存
+        case "cache.get", "cache.get.sync": return try readCache(args)
+        case "cache.set", "cache.set.sync": return try writeCache(args)
+        case "cache.set_if_absent": return try Self.encode(cache.setIfAbsent(
+            try Self.requiredString(args, at: 0, route: route),
+            value: try Self.rawJSON(args, at: 1)
+        ))
+        case "cache.compare_and_set": return try Self.encode(cache.compareAndSet(
+            try Self.requiredString(args, at: 0, route: route),
+            expected: try Self.rawJSON(args, at: 1),
+            next: try Self.rawJSON(args, at: 2)
+        ))
         case "cache.delete":
             cache.delete(try Self.requiredString(args, at: 0, route: route))
             return "null"
 
-        case "load_plugin_config":
-            return try Self.encode(config.load(
-                key: try Self.requiredString(args, at: 0, route: route),
-                fallback: Self.string(args, at: 1) ?? ""
-            ))
-
+        // 持久化配置
+        case "load_plugin_config": return try Self.encode(config.load(
+            key: try Self.requiredString(args, at: 0, route: route),
+            fallback: Self.string(args, at: 1) ?? ""
+        ))
         case "save_plugin_config":
             config.save(
                 key: try Self.requiredString(args, at: 0, route: route),
@@ -63,77 +48,77 @@ final class PluginHostBridge: @unchecked Sendable {
             )
             return "null"
 
-        case "opencc.convert":
-            guard let payload = args.first as? [String: Any], let text = payload["text"] as? String else {
-                throw PluginError.invalidPayload("opencc.convert 需要 { text, config }")
-            }
-            let configName = payload["config"] as? String ?? "t2s.json"
-            return try Self.encode(ChineseConverter.convert(text, config: configName))
-
-        case "dart.getAppVersion":
-            return try Self.encode(Self.appVersion)
-
-        case "dart.getLocaleInfo":
-            return try Self.encode(Self.localeInfoJSON())
-
-        case "flutter.showToast":
-            if let message = args.first as? String { logger.notice("插件提示: \(message, privacy: .public)") }
-            return "null"
-
-        case "math.add":
-            let left = Self.number(args, at: 0)
-            let right = Self.number(args, at: 1)
-            return try Self.encode(left + right)
-
-        case "http.request":
-            let requestID = Self.int(args, at: 0)
-            let payload = await httpClient.request(
-                id: requestID,
-                method: Self.string(args, at: 1) ?? "GET",
-                urlString: Self.string(args, at: 2) ?? "",
-                headers: Self.headers(args, at: 3),
-                bodyText: Self.string(args, at: 4),
-                bodyBase64: Self.string(args, at: 5)
-            )
-            return try Self.encode(payload)
-
+        // 网络
+        case "http.request": return try await handleRequest(args)
         case "http.cancel":
             httpClient.cancel(id: Self.int(args, at: 0))
             return "null"
 
-        case "runtime.gc":
+        // 宿主信息与工具
+        case "opencc.convert": return try Self.encode(convertChinese(args))
+        case "dart.getAppVersion": return try Self.encode(Self.appVersion)
+        case "dart.getLocaleInfo": return try Self.encode(Self.localeInfoJSON())
+        case "flutter.showToast":
+            if let message = Self.string(args, at: 0) {
+                logger.notice("插件提示: \(message, privacy: .public)")
+            }
             return "null"
+        case "math.add": return try Self.encode(Self.number(args, at: 0) + Self.number(args, at: 1))
 
-        case "runtime.is_task_group_cancelled":
-            return try Self.encode(false)
+        // 运行时状态
+        case "runtime.gc": return "null"
+        case "runtime.is_task_group_cancelled": return try Self.encode(false)
 
-        default:
-            throw PluginError.unsupportedRoute(route)
+        default: throw PluginError.unsupportedRoute(route)
         }
     }
 
-    /// 同步路由：仅供 `callSync` 使用，必须足够快
+    /// 同步路由：仅供 `callSync` 使用，必须足够快，因此只支持缓存读写
     func dispatchSync(route: String, argsJSON: String) -> String {
         do {
             let args = try Self.decodeArguments(argsJSON)
             switch route {
-            case "cache.get.sync":
-                guard let key = Self.string(args, at: 0) else {
-                    return Self.syncEnvelope(ok: true, payload: "null")
-                }
-                return Self.syncEnvelope(ok: true, payload: try (cache.get(key) ?? Self.rawJSON(args, at: 1)))
-            case "cache.set.sync":
-                cache.set(Self.string(args, at: 0) ?? "", value: try Self.rawJSON(args, at: 1))
-                return Self.syncEnvelope(ok: true, payload: "null")
+            case "cache.get.sync": return Self.syncEnvelope(ok: true, payload: try readCache(args))
+            case "cache.set.sync": return Self.syncEnvelope(ok: true, payload: try writeCache(args))
             default:
-                return Self.syncEnvelope(
-                    ok: false,
-                    payload: PluginError.unsupportedRoute("\(route)(sync)").localizedDescription
-                )
+                let reason = PluginError.unsupportedRoute("\(route)(sync)").localizedDescription
+                return Self.syncEnvelope(ok: false, payload: reason)
             }
         } catch {
             return Self.syncEnvelope(ok: false, payload: error.localizedDescription)
         }
+    }
+
+    // MARK: - 路由实现
+
+    /// 读取缓存，返回 JSON 文本；缓存里存的就是 JSON 文本，直接回传避免再包一层字符串
+    private func readCache(_ args: [Any]) throws -> String {
+        guard let key = Self.string(args, at: 0) else { return "null" }
+        return try (cache.get(key) ?? Self.rawJSON(args, at: 1))
+    }
+
+    private func writeCache(_ args: [Any]) throws -> String {
+        cache.set(try Self.requiredString(args, at: 0, route: "cache.set"), value: try Self.rawJSON(args, at: 1))
+        return "null"
+    }
+
+    private func handleRequest(_ args: [Any]) async throws -> String {
+        let payload = await httpClient.request(
+            id: Self.int(args, at: 0),
+            method: Self.string(args, at: 1) ?? "GET",
+            urlString: Self.string(args, at: 2) ?? "",
+            headers: Self.headers(args, at: 3),
+            bodyText: Self.string(args, at: 4),
+            bodyBase64: Self.string(args, at: 5)
+        )
+        return try Self.encode(payload)
+    }
+
+    private static func convertChinese(_ args: [Any]) throws -> String {
+        guard let payload = args.first as? [String: Any], let text = payload["text"] as? String else {
+            throw PluginError.invalidPayload("opencc.convert 需要 { text, config }")
+        }
+        return ChineseConverter.convert(text, config: payload["config"] as? String ?? "t2s.json")
     }
 
     // MARK: - JSON 辅助

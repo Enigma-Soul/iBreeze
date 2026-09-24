@@ -96,6 +96,17 @@ final class PluginRuntime: @unchecked Sendable {
     // MARK: - 宿主函数注入
 
     private func installNativeFunctions(on context: JSContext) {
+        installHostHooks(on: context)
+        installTimerHooks(on: context)
+
+        let nativeLog: @convention(block) (String, String) -> Void = { [weak self] level, message in
+            self?.logger.debug("[\(level, privacy: .public)] \(message, privacy: .public)")
+        }
+        context.setObject(nativeLog, forKeyedSubscript: "__nativeLog" as NSString)
+    }
+
+    /// `bridge` 的两条通路：异步 `call` 与同步 `callSync`
+    private func installHostHooks(on context: JSContext) {
         let nativeCall: @convention(block) (NSNumber, String, String) -> Void = { [weak self] id, route, argsJSON in
             guard let self else { return }
             let callID = id.intValue
@@ -108,12 +119,10 @@ final class PluginRuntime: @unchecked Sendable {
             return self.host.dispatchSync(route: route, argsJSON: argsJSON)
         }
         context.setObject(nativeCallSync, forKeyedSubscript: "__nativeCallSync" as NSString)
+    }
 
-        let nativeLog: @convention(block) (String, String) -> Void = { [weak self] level, message in
-            self?.logger.debug("[\(level, privacy: .public)] \(message, privacy: .public)")
-        }
-        context.setObject(nativeLog, forKeyedSubscript: "__nativeLog" as NSString)
-
+    /// setTimeout / setInterval 的宿主实现
+    private func installTimerHooks(on context: JSContext) {
         let timerStart: @convention(block) (NSNumber, NSNumber) -> String = { [weak self] delayMs, isInterval in
             guard let self else { return #"{"ok":false,"error":"运行时已销毁"}"# }
             return self.timers.start(delayMs: delayMs.intValue, isInterval: isInterval.intValue != 0)
@@ -127,34 +136,37 @@ final class PluginRuntime: @unchecked Sendable {
     }
 
     private func handleHostCall(id: Int, route: String, argsJSON: String) async {
-        let outcome: Result<String, Error>
         do {
-            outcome = .success(try await host.dispatch(route: route, argsJSON: argsJSON))
+            resolve(id: id, outcome: .success(try await host.dispatch(route: route, argsJSON: argsJSON)))
         } catch {
-            outcome = .failure(error)
+            resolve(id: id, outcome: .failure(error))
         }
-        resolve(id: id, outcome: outcome)
     }
 
     /// 定时器到点：回到 JS 队列上触发插件的回调
     private func deliverTimerComplete(hostID: Int, payload: String) {
-        queue.async { [weak self] in
-            guard let self, let context = self.context else { return }
+        onContext { context in
             context.objectForKeyedSubscript("__host_runtime_timer_complete")?
                 .call(withArguments: [hostID, payload])
         }
     }
 
     private func resolve(id: Int, outcome: Result<String, Error>) {
+        onContext { context in
+            let arguments: [Any]
+            switch outcome {
+            case .success(let payload): arguments = [id, true, payload]
+            case .failure(let error): arguments = [id, false, error.localizedDescription]
+            }
+            context.objectForKeyedSubscript("__nativeCallResolve")?.call(withArguments: arguments)
+        }
+    }
+
+    /// 在 JS 队列上、且运行时仍然存活时执行一段操作
+    private func onContext(_ body: @escaping @Sendable (JSContext) -> Void) {
         queue.async { [weak self] in
             guard let self, let context = self.context else { return }
-            switch outcome {
-            case .success(let payload):
-                context.objectForKeyedSubscript("__nativeCallResolve")?.call(withArguments: [id, true, payload])
-            case .failure(let error):
-                context.objectForKeyedSubscript("__nativeCallResolve")?
-                    .call(withArguments: [id, false, error.localizedDescription])
-            }
+            body(context)
         }
     }
 

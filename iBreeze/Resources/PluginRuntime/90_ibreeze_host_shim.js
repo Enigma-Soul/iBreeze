@@ -17,21 +17,12 @@
       return host.hostCallSync(route, Array.prototype.slice.call(arguments, 1));
     },
     gzipCompress: function (input) {
-      return host.hostCall("compression.gzip_compress", [host.bytesToBase64(toBytes(input))]);
+      return host.hostCall("compression.gzip_compress", [host.bytesToBase64(host.toBytes(input))]);
     },
     gzipDecompress: function (input) {
-      return host.hostCall("compression.gzip_decompress", [host.bytesToBase64(toBytes(input))]);
+      return host.hostCall("compression.gzip_decompress", [host.bytesToBase64(host.toBytes(input))]);
     }
   };
-
-  function toBytes(input) {
-    if (input instanceof Uint8Array) return input;
-    if (input instanceof ArrayBuffer) return new Uint8Array(input);
-    if (ArrayBuffer.isView(input)) {
-      return new Uint8Array(input.buffer, input.byteOffset, input.byteLength);
-    }
-    return Uint8Array.from(input || []);
-  }
 
   function logger(level) {
     return function () {

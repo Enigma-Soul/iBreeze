@@ -291,6 +291,7 @@
     describe: describe,
     stringify: safeStringify,
     parse: parseJSON,
+    toBytes: toBytes,
     bytesToBase64: bytesToBase64,
     bytesFromBase64: bytesFromBase64
   };

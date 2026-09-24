@@ -48,7 +48,7 @@ extension JSONValue {
         return dictionary[key]
     }
 
-    /// 取字符串，数字也会转成字符串
+    /// 取字符串，数字与布尔也会转成字符串
     var stringValue: String? {
         switch self {
         case .string(let value): value
@@ -56,18 +56,5 @@ extension JSONValue {
         case .bool(let value): String(value)
         default: nil
         }
-    }
-
-    var intValue: Int? {
-        switch self {
-        case .number(let value): Int(value)
-        case .string(let value): Int(value)
-        default: nil
-        }
-    }
-
-    var arrayValue: [JSONValue]? {
-        guard case .array(let value) = self else { return nil }
-        return value
     }
 }

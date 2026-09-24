@@ -81,11 +81,7 @@ final class PluginHTTPClient: @unchecked Sendable {
     private func perform(_ request: URLRequest, id: Int) async throws -> (Data, URLResponse) {
         try await withCheckedThrowingContinuation { continuation in
             let task = session.dataTask(with: request) { [weak self] data, response, error in
-                if let self {
-                    self.lock.lock()
-                    self.tasks.removeValue(forKey: id)
-                    self.lock.unlock()
-                }
+                self?.forget(id: id)
                 if let error {
                     continuation.resume(throwing: error)
                 } else {
@@ -97,6 +93,12 @@ final class PluginHTTPClient: @unchecked Sendable {
             lock.unlock()
             task.resume()
         }
+    }
+
+    private func forget(id: Int) {
+        lock.lock()
+        tasks.removeValue(forKey: id)
+        lock.unlock()
     }
 
     private static func flatten(_ response: HTTPURLResponse?) -> [String: String] {
