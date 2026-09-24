@@ -51,12 +51,30 @@ targets:
         ENABLE_PREVIEWS: "YES"
         CODE_SIGN_STYLE: Automatic
 
+  iBreezeTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: iBreezeTests
+    dependencies:
+      - target: iBreeze
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: "YES"
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/iBreeze.app/iBreeze"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+
 schemes:
   iBreeze:
     build:
       targets:
         iBreeze: all
+        iBreezeTests: [test]
     run:
       config: Debug
+    test:
+      config: Debug
+      targets:
+        - iBreezeTests
     archive:
       config: Release
