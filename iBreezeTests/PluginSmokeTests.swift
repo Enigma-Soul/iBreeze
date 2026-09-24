@@ -73,11 +73,11 @@ struct PluginSmokeTests {
         #expect(bytes.count > 0, "没有拿到图片字节")
     }
 
-    /// 联网抓真实列表：站点可能对 CI 机房 IP 不友好，单独用环境变量控制
+    /// 联网抓真实列表、详情与阅读快照：站点可能对 CI 机房 IP 不友好，单独用环境变量控制
     @Test(
-        "抓取真实列表",
+        "列表到阅读的完整链路",
         .enabled(if: ProcessInfo.processInfo.environment["IBREEZE_SMOKE_NETWORK"] == "1"),
-        .timeLimit(.minutes(3))
+        .timeLimit(.minutes(4))
     )
     func fetchRealList() async throws {
         let (source, _) = try await installEhentai()
@@ -86,16 +86,31 @@ struct PluginSmokeTests {
         let info = try await source.info()
         let scene = try #require(info.function?.first?.action.payload?.scene)
 
+        // 1. 列表
         let list = try await source.pagedList(
             fnPath: scene.body.request.fnPath,
             page: 1,
             core: scene.body.request.core,
             extern: scene.body.request.extern
         )
-
         #expect(!list.resolvedItems.isEmpty, "列表没有返回任何条目")
-        let first = try #require(list.resolvedItems.first)
-        #expect(!first.id.isEmpty)
-        #expect(!first.title.isEmpty)
+        let item = try #require(list.resolvedItems.first)
+        #expect(!item.id.isEmpty)
+        #expect(!item.title.isEmpty)
+
+        // 2. 详情与章节
+        let detail = try await source.comicDetail(comicID: item.id)
+        #expect(detail.data?.normal?.comicInfo?.title?.isEmpty == false, "详情没有标题")
+        let chapters = try #require(detail.data?.normal?.eps)
+        #expect(!chapters.isEmpty, "详情没有章节")
+
+        // 3. 阅读快照里的图片列表
+        let snapshot = try await source.readSnapshot(
+            comicID: item.id,
+            chapterID: chapters[0].resolvedRequestId
+        )
+        let pages = try #require(snapshot.data?.chapter?.pages)
+        #expect(!pages.isEmpty, "章节没有返回图片")
+        #expect(pages[0].url?.isEmpty == false, "图片地址为空")
     }
 }

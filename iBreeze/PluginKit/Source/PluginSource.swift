@@ -123,6 +123,20 @@ final class PluginSource: @unchecked Sendable {
         )
     }
 
+    /// 持久化插件设置项：与插件自己调 `pluginConfig.save` 写到同一份存储
+    func saveSetting(key: String, value: JSONValue) async throws {
+        let encoded = try Self.json(value.anyValue)
+        _ = try await runtime.callHost(route: "save_plugin_config", args: [key, encoded])
+    }
+
+    /// 通知插件某个设置项变了，插件可在回调里做校验或联动
+    func notifySettingChanged(fnPath: String, key: String, value: JSONValue) async throws {
+        _ = try await invokeJSON(
+            fnPath: fnPath,
+            payloadJSON: try Self.json(["extern": [:], "key": key, "value": value.anyValue])
+        )
+    }
+
     // MARK: - 内部辅助
 
     /// 调用并解成 JSONValue，避免 `[String: Any]` 跨隔离边界
@@ -134,7 +148,7 @@ final class PluginSource: @unchecked Sendable {
         return try JSONDecoder().decode(JSONValue.self, from: data)
     }
 
-    private static func json(_ payload: [String: Any]) throws -> String {
+    private static func json(_ payload: Any) throws -> String {
         let data = try JSONSerialization.data(withJSONObject: payload, options: [.fragmentsAllowed])
         return String(decoding: data, as: UTF8.self)
     }

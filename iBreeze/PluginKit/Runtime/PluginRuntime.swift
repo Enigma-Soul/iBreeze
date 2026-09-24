@@ -85,6 +85,12 @@ final class PluginRuntime: @unchecked Sendable {
         return try Self.decodeBinary(json)
     }
 
+    /// 宿主自身发起的路由调用（例如设置页写回配置）
+    func callHost(route: String, args: [Any]) async throws -> String {
+        let data = try JSONSerialization.data(withJSONObject: args, options: [.fragmentsAllowed])
+        return try await host.dispatch(route: route, argsJSON: String(decoding: data, as: UTF8.self))
+    }
+
     /// 销毁运行时
     func shutdown() async {
         try? await run { [self] in

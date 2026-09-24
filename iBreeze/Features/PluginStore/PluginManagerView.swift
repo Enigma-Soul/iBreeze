@@ -129,19 +129,25 @@ struct PluginManagerView: View {
 
     private func row(for plugin: InstalledPlugin) -> some View {
         HStack(spacing: 12) {
-            AsyncImage(url: plugin.iconURL.flatMap(URL.init(string:))) { image in
-                image.resizable().aspectRatio(contentMode: .fill)
-            } placeholder: {
-                Image(systemName: "puzzlepiece.extension").foregroundStyle(.secondary)
-            }
-            .frame(width: 36, height: 36)
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            NavigationLink {
+                PluginSettingsView(plugin: plugin)
+            } label: {
+                HStack(spacing: 12) {
+                    AsyncImage(url: plugin.iconURL.flatMap(URL.init(string:))) { image in
+                        image.resizable().aspectRatio(contentMode: .fill)
+                    } placeholder: {
+                        Image(systemName: "puzzlepiece.extension").foregroundStyle(.secondary)
+                    }
+                    .frame(width: 36, height: 36)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(plugin.name)
-                Text(plugin.version)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(plugin.name)
+                        Text(plugin.version)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
 
             Spacer()
