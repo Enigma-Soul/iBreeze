@@ -55,7 +55,6 @@ const config = new Map();
 const bytes = (value) => Buffer.from(value ?? []);
 const digestPayload = (buffer) => ({ hex: buffer.toString("hex"), base64: buffer.toString("base64") });
 
-/// 宿主路由桩：与 PluginHostBridge 的行为保持最小一致
 /// 唯一异步的路由：真实网络请求
 async function httpRequest(args) {
   const [, method, url, headers, bodyText, bodyBase64] = args;
@@ -75,6 +74,7 @@ async function httpRequest(args) {
   };
 }
 
+/// 宿主路由桩：与 PluginHostBridge 的行为保持最小一致
 function handleRoute(route, args) {
   if (process.env.HARNESS_DEBUG) console.error("route:", route, JSON.stringify(args));
 
