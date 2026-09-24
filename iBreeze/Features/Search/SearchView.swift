@@ -32,7 +32,7 @@ struct SearchView: View {
             ContentUnavailableView(
                 "搜索漫画",
                 systemImage: "magnifyingglass",
-                description: Text(viewModel.errorMessage.map(Text.init) ?? Text("输入关键词后回车"))
+                description: Text(viewModel.errorMessage ?? "输入关键词后回车")
             )
         } else {
             results
