@@ -1,0 +1,62 @@
+# XcodeGen 工程定义：仓库只存这份配置，.xcodeproj 由 `xcodegen generate` 生成（已 gitignore）
+name: iBreeze
+
+options:
+  bundleIdPrefix: com.enigma-soul
+  createIntermediateGroups: true
+  deploymentTarget:
+    iOS: "18.0"
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    ENABLE_USER_SCRIPT_SANDBOXING: "YES"
+
+targets:
+  iBreeze:
+    type: application
+    platform: iOS
+    sources:
+      - path: iBreeze
+    # Info.plist 由 XcodeGen 生成到 Support/ 下，避免被 sources 当成资源重复打包
+    info:
+      path: Support/Info.plist
+      properties:
+        CFBundleDisplayName: iBreeze
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        ITSAppUsesNonExemptEncryption: false
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        # 漫画源五花八门，允许明文 HTTP，否则很多图源直接不可用
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.enigma-soul.ibreeze
+        PRODUCT_NAME: iBreeze
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        ENABLE_PREVIEWS: "YES"
+        CODE_SIGN_STYLE: Automatic
+
+schemes:
+  iBreeze:
+    build:
+      targets:
+        iBreeze: all
+    run:
+      config: Debug
+    archive:
+      config: Release
