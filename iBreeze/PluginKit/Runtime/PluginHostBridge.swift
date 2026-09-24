@@ -24,7 +24,7 @@ final class PluginHostBridge: @unchecked Sendable {
         case "cache.get", "cache.get.sync":
             guard let key = Self.string(args, at: 0) else { return "null" }
             // 缓存里存的就是 JSON 文本，直接回传，避免再包一层字符串
-            return cache.get(key) ?? (try Self.rawJSON(args, at: 1))
+            return try (cache.get(key) ?? Self.rawJSON(args, at: 1))
 
         case "cache.set", "cache.set.sync":
             cache.set(try Self.requiredString(args, at: 0, route: route), value: try Self.rawJSON(args, at: 1))
@@ -104,7 +104,7 @@ final class PluginHostBridge: @unchecked Sendable {
                 guard let key = Self.string(args, at: 0) else {
                     return Self.syncEnvelope(ok: true, payload: "null")
                 }
-                return Self.syncEnvelope(ok: true, payload: cache.get(key) ?? (try Self.rawJSON(args, at: 1)))
+                return Self.syncEnvelope(ok: true, payload: try (cache.get(key) ?? Self.rawJSON(args, at: 1)))
             case "cache.set.sync":
                 cache.set(Self.string(args, at: 0) ?? "", value: try Self.rawJSON(args, at: 1))
                 return Self.syncEnvelope(ok: true, payload: "null")
