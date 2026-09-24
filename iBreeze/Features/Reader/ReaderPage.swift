@@ -97,7 +97,7 @@ struct ReaderPage: View {
                 }
             }
         }
-        .navigationTitle(chapterName)
+        .navigationTitle(chapterName.convertedChinese)
         .navigationBarTitleDisplayMode(.inline)
         .task { if viewModel.pages.isEmpty { await viewModel.load() } }
         .overlay(alignment: .bottom) { chapterBar }
@@ -112,7 +112,7 @@ struct ReaderPage: View {
         if !viewModel.pages.isEmpty {
             HStack(spacing: 18) {
                 chapterButton(title: "上一章", systemImage: "chevron.left", chapter: viewModel.previousChapter)
-                Text(chapterName.isEmpty ? comicTitle : chapterName)
+                Text((chapterName.isEmpty ? comicTitle : chapterName).convertedChinese)
                     .font(.footnote)
                     .lineLimit(1)
                     .frame(maxWidth: 160)

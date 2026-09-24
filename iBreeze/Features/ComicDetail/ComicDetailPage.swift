@@ -112,17 +112,17 @@ struct ComicDetailPage: View {
                 .clipShape(RoundedRectangle(cornerRadius: AppTheme.Radius.card, style: .continuous))
 
             VStack(alignment: .leading, spacing: 6) {
-                Text(viewModel.info?.title ?? "加载中…")
+                Text((viewModel.info?.title ?? "加载中…").convertedChinese)
                     .font(.headline)
 
                 if let creator = viewModel.info?.creator?.name, !creator.isEmpty {
-                    Text(creator)
+                    Text(creator.convertedChinese)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
 
                 if let description = viewModel.info?.description, !description.isEmpty {
-                    Text(description)
+                    Text(description.convertedChinese)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(4)
@@ -151,7 +151,7 @@ struct ComicDetailPage: View {
                         title: viewModel.info?.title ?? ""
                     )) {
                         HStack {
-                            Text(chapter.name ?? chapter.id)
+                            Text((chapter.name ?? chapter.id).convertedChinese)
                                 .font(.subheadline)
                                 .lineLimit(1)
                             Spacer()

@@ -36,7 +36,7 @@ struct FavoritesView: View {
                                 .frame(height: 150)
                                 .clipShape(RoundedRectangle(cornerRadius: AppTheme.Radius.card, style: .continuous))
 
-                            Text(entry.title)
+                            Text(entry.title.convertedChinese)
                                 .font(.caption.weight(.medium))
                                 .lineLimit(1)
                         }

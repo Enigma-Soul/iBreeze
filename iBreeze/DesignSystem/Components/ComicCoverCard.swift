@@ -12,12 +12,12 @@ struct ComicCoverCard: View {
                 .frame(width: width, height: width.map { $0 * 4 / 3 })
                 .clipShape(RoundedRectangle(cornerRadius: AppTheme.Radius.card, style: .continuous))
 
-            Text(item.title)
+            Text(item.title.convertedChinese)
                 .font(.caption.weight(.medium))
                 .lineLimit(1)
 
             if let subtitle = item.subtitle, !subtitle.isEmpty {
-                Text(subtitle)
+                Text(subtitle.convertedChinese)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)

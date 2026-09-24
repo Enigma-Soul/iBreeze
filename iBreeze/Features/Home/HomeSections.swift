@@ -162,7 +162,7 @@ struct BrowsingHistorySection: View {
                 .frame(width: 110, height: 146)
                 .clipShape(RoundedRectangle(cornerRadius: AppTheme.Radius.card, style: .continuous))
 
-            Text(entry.title)
+            Text(entry.title.convertedChinese)
                 .font(.caption.weight(.medium))
                 .lineLimit(1)
                 .frame(width: 110, alignment: .leading)
