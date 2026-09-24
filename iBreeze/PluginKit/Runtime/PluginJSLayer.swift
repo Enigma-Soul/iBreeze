@@ -11,10 +11,10 @@ enum PluginJSLayer {
     /// 宿主能力垫片，必须在 99_exports 之后（否则会被清空）
     private static let hostShim = "90_ibreeze_host_shim"
 
-    /// 与上游 `web_runtime.rs` 的拼接顺序保持一致
+    /// 与上游 `web_runtime.rs` 的拼接顺序保持一致：04 提供基础对象，00 再取用它们
     private static let breezePolyfills = [
-        "00_bootstrap",
         "04_runtime_base_polyfills",
+        "00_bootstrap",
         "05_structured_clone",
         "06_url",
         "10_headers",

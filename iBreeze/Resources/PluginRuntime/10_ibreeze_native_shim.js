@@ -64,15 +64,22 @@
     };
   }
 
+  /// 取 Base64 字符值；越界或填充符返回 -1
+  function base64Value(text, index) {
+    if (index < 0 || index >= text.length) return -1;
+    return BASE64_CHARS.indexOf(text.charAt(index));
+  }
+
   if (typeof globalThis.atob !== "function") {
     globalThis.atob = function (input) {
-      var text = String(input).replace(/[^A-Za-z0-9+/]/g, "");
+      var text = String(input);
       var output = "";
       for (var i = 0; i < text.length; i += 4) {
-        var n1 = BASE64_CHARS.indexOf(text.charAt(i));
-        var n2 = BASE64_CHARS.indexOf(text.charAt(i + 1));
-        var n3 = BASE64_CHARS.indexOf(text.charAt(i + 2));
-        var n4 = BASE64_CHARS.indexOf(text.charAt(i + 3));
+        var n1 = base64Value(text, i);
+        var n2 = base64Value(text, i + 1);
+        var n3 = base64Value(text, i + 2);
+        var n4 = base64Value(text, i + 3);
+        if (n1 < 0 || n2 < 0) break;
         output += String.fromCharCode((n1 << 2) | (n2 >> 4));
         if (n3 >= 0) output += String.fromCharCode(((n2 & 15) << 4) | (n3 >> 2));
         if (n4 >= 0) output += String.fromCharCode(((n3 & 3) << 6) | n4);

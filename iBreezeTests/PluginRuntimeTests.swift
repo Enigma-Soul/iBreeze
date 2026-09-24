@@ -49,9 +49,10 @@ module.exports = {
             decoded: new TextDecoder().decode(bytesFromBase64("aGVsbG8="))
         };
     },
-    async fetchUnreachable() {
+    async fetchRejects() {
         try {
-            await fetch("http://127.0.0.1:1/unreachable");
+            // 非法协议：不需要真实网络即可验证 fetch 的错误路径
+            await fetch("ibreeze-invalid://x");
             return { failed: false, message: "" };
         } catch (error) {
             return { failed: true, message: String((error && error.message) || error) };
@@ -68,7 +69,7 @@ module.exports = {
 };
 """#
 
-@Suite("插件运行时")
+@Suite("插件运行时", .timeLimit(.minutes(2)))
 struct PluginRuntimeTests {
     private func makeRuntime(bundle: String = sampleBundle) async throws -> PluginRuntime {
         let pluginID = UUID().uuidString
@@ -126,20 +127,16 @@ struct PluginRuntimeTests {
     }
 }
 
-@Suite("插件 Web 运行时")
+/// 只在 Node 侧也能复现的沙箱：`Tools/plugin-js-harness.mjs` 覆盖同一批断言
+@Suite("插件 Web 运行时", .timeLimit(.minutes(2)))
 struct PluginWebRuntimeTests {
-    private func makeRuntime() async throws -> PluginRuntime {
+    @Test("Web 运行时、定时器与二进制链路")
+    func webRuntime() async throws {
         let pluginID = UUID().uuidString
         let runtime = PluginRuntime(pluginID: pluginID, host: PluginHostBridge(pluginID: pluginID))
         try await runtime.load(bundle: runtimeBundle)
-        return runtime
-    }
 
-    @Test("注入的全局对象齐备")
-    func runtimeGlobals() async throws {
-        let runtime = try await makeRuntime()
         let globals = try await runtime.invokeObject(fnPath: "runtimeGlobals")
-
         for key in [
             "hasURL", "hasHeaders", "hasFetch", "hasResponse", "hasAbortController",
             "hasTextEncoder", "hasStructuredClone", "hasFormData", "hasBlob",
@@ -151,30 +148,15 @@ struct PluginWebRuntimeTests {
         #expect(globals["query"] as? String == "2")
         #expect(globals["base64"] as? String == "aGVsbG8=")
         #expect(globals["decoded"] as? String == "hello")
-    }
 
-    @Test("fetch 失败时插件收到异常")
-    func fetchUnreachable() async throws {
-        let runtime = try await makeRuntime()
-        let result = try await runtime.invokeObject(fnPath: "fetchUnreachable")
+        let fetchResult = try await runtime.invokeObject(fnPath: "fetchRejects")
+        #expect(fetchResult["failed"] as? Bool == true)
 
-        #expect(result["failed"] as? Bool == true)
-    }
-
-    @Test("定时器由宿主驱动")
-    func timerDelay() async throws {
-        let runtime = try await makeRuntime()
-        let result = try await runtime.invokeObject(fnPath: "timerDelay")
-
-        let elapsed = result["elapsed"] as? Double ?? 0
+        let timer = try await runtime.invokeObject(fnPath: "timerDelay")
+        let elapsed = timer["elapsed"] as? Double ?? 0
         #expect(elapsed >= 25, "定时器没有真正等待，elapsed=\(elapsed)")
-    }
 
-    @Test("返回二进制时走二进制信封")
-    func binaryResult() async throws {
-        let runtime = try await makeRuntime()
         let data = try await runtime.invokeData(fnPath: "binary")
-
         #expect(Array(data) == [1, 2, 3, 4])
     }
 }

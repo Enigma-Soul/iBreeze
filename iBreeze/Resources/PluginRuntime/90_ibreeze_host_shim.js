@@ -48,6 +48,12 @@
     debug: logger("debug")
   };
 
+  // Breeze 的 00_bootstrap.js 是从 __web 上取 bridge 的，这里同步一份
+  if (globalThis.__web) {
+    globalThis.__web.bridge = globalThis.bridge;
+    globalThis.__web.console = globalThis.console;
+  }
+
   // 宿主调用：载入 CommonJS bundle（插件为单文件产物，不支持运行时 require）
   globalThis.__loadBundle = function (code) {
     var module = { exports: {} };
