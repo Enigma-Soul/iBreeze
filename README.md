@@ -49,7 +49,7 @@ git push origin develop      # 触发 CI：单元测试 + 真实插件冒烟 + �
 不依赖 Mac 的本地验证工具：
 
 ```bash
-node Tools/plugin-js-harness.mjs                                  # JS 层自检（53 项）
+node Tools/plugin-js-harness.mjs                                  # JS 层自检（50 项）
 node Tools/plugin-js-harness.mjs <bundle.cjs> <fnPath> [payload]  # 直接跑某个插件 bundle
 node Tools/generate-app-icon.mjs                                  # 重新生成 App 图标
 ```

@@ -59,11 +59,22 @@ const digestPayload = (buffer) => ({ hex: buffer.toString("hex"), base64: buffer
 /// 唯一异步的路由：真实网络请求
 async function httpRequest(args) {
   const [, method, url, headers, bodyText, bodyBase64] = args;
-  const response = await fetch(url, {
-    method: method || "GET",
-    headers: headers ?? {},
-    body: bodyBase64 ? Buffer.from(bodyBase64, "base64") : bodyText ?? undefined,
-  });
+  let response;
+  try {
+    response = await fetch(url, {
+      method: method || "GET",
+      headers: headers ?? {},
+      body: bodyBase64 ? Buffer.from(bodyBase64, "base64") : bodyText ?? undefined,
+    });
+  } catch (error) {
+    // Node 的 fetch 默认不走 HTTP_PROXY，国内网络下多半是这种情况
+    if (!process.env.NODE_USE_ENV_PROXY) {
+      throw new Error(
+        `${error.message}（本机连不上目标站点时，可用 NODE_USE_ENV_PROXY=1 让 Node 走 HTTP_PROXY）`
+      );
+    }
+    throw error;
+  }
   const buffer = Buffer.from(await response.arrayBuffer());
   return {
     ok: true,

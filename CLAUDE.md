@@ -41,9 +41,15 @@ CI sets both. Locally they are skipped so offline runs stay green.
 ## Local JS verification (no Mac needed)
 
 ```
-node Tools/plugin-js-harness.mjs                                  # 53 self-checks
+node Tools/plugin-js-harness.mjs                                  # 50 self-checks
 node Tools/plugin-js-harness.mjs <bundle.cjs> <fnPath> [payload]  # run a real plugin bundle
 node Tools/generate-app-icon.mjs                                  # regenerate the app icon
+```
+
+Real-network runs need the proxy on this machine (Node's `fetch` ignores `HTTP_PROXY` unless told):
+
+```
+NODE_USE_ENV_PROXY=1 node Tools/plugin-js-harness.mjs <bundle.cjs> getLatestData '{"page":1}'
 ```
 
 The harness boots the same injection chain as the app inside a bare `node:vm` context
