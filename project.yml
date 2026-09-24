@@ -17,7 +17,12 @@ targets:
     type: application
     platform: iOS
     sources:
+      # 插件运行时脚本单独作为 folder reference 打包，保留目录结构
       - path: iBreeze
+        excludes:
+          - Resources/PluginRuntime/**
+      - path: iBreeze/Resources/PluginRuntime
+        type: folder
     # Info.plist 由 XcodeGen 生成到 Support/ 下，避免被 sources 当成资源重复打包
     info:
       path: Support/Info.plist

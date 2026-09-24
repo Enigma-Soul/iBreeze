@@ -12,6 +12,8 @@ enum PluginError: LocalizedError, Equatable {
     case unsupportedRoute(String)
     /// 入参不合法
     case invalidPayload(String)
+    /// 运行时 JS 脚本缺失（打包问题）
+    case missingRuntimeScript
 
     var errorDescription: String? {
         switch self {
@@ -20,6 +22,7 @@ enum PluginError: LocalizedError, Equatable {
         case .pluginThrew(let message): message
         case .unsupportedRoute(let route): "宿主未实现路由：\(route)"
         case .invalidPayload(let detail): "插件入参不合法：\(detail)"
+        case .missingRuntimeScript: "插件运行时脚本缺失，请检查打包配置"
         }
     }
 }

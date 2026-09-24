@@ -9,6 +9,7 @@ final class PluginHostBridge: @unchecked Sendable {
     private let pluginID: String
     private let cache = PluginCache()
     private let config: PluginConfigStore
+    private let httpClient = PluginHTTPClient()
     private let logger = Logger(subsystem: "com.enigma-soul.ibreeze", category: "PluginHost")
 
     init(pluginID: String) {
@@ -84,6 +85,22 @@ final class PluginHostBridge: @unchecked Sendable {
             let right = Self.number(args, at: 1)
             return try Self.encode(left + right)
 
+        case "http.request":
+            let requestID = Self.int(args, at: 0)
+            let payload = await httpClient.request(
+                id: requestID,
+                method: Self.string(args, at: 1) ?? "GET",
+                urlString: Self.string(args, at: 2) ?? "",
+                headers: Self.headers(args, at: 3),
+                bodyText: Self.string(args, at: 4),
+                bodyBase64: Self.string(args, at: 5)
+            )
+            return try Self.encode(payload)
+
+        case "http.cancel":
+            httpClient.cancel(id: Self.int(args, at: 0))
+            return "null"
+
         case "runtime.gc":
             return "null"
 
@@ -144,6 +161,17 @@ final class PluginHostBridge: @unchecked Sendable {
     private static func number(_ args: [Any], at index: Int) -> Double {
         guard args.indices.contains(index) else { return 0 }
         return args[index] as? Double ?? 0
+    }
+
+    private static func int(_ args: [Any], at index: Int) -> Int {
+        Int(number(args, at: index))
+    }
+
+    private static func headers(_ args: [Any], at index: Int) -> [String: String] {
+        guard args.indices.contains(index), let raw = args[index] as? [String: Any] else { return [:] }
+        return raw.reduce(into: [:]) { result, pair in
+            result[pair.key] = String(describing: pair.value)
+        }
     }
 
     private static func requiredString(_ args: [Any], at index: Int, route: String) throws -> String {

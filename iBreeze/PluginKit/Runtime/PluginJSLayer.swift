@@ -1,0 +1,59 @@
+import Foundation
+
+/// 注入插件运行时的 JS 层。
+///
+/// 分三段：iBreeze 原生垫片 → Breeze 官方 polyfill → iBreeze 宿主垫片。
+/// 中间那段来自 Breeze（MPL-2.0），见 `Resources/PluginRuntime/NOTICE.md`。
+enum PluginJSLayer {
+    /// 原生能力垫片，必须在 polyfill 之前
+    private static let nativeShim = "10_ibreeze_native_shim"
+
+    /// 宿主能力垫片，必须在 99_exports 之后（否则会被清空）
+    private static let hostShim = "90_ibreeze_host_shim"
+
+    /// 与上游 `web_runtime.rs` 的拼接顺序保持一致
+    private static let breezePolyfills = [
+        "00_bootstrap",
+        "04_runtime_base_polyfills",
+        "05_structured_clone",
+        "06_url",
+        "10_headers",
+        "20_abort",
+        "30_fetch",
+        "60_native",
+        "63_stack_hook",
+        "70_temporal",
+        "99_exports"
+    ]
+
+    /// 组装好的完整脚本，进程内只拼一次
+    private static let assembled: String? = {
+        guard let nativeShimSource = try? source(named: nativeShim),
+              let hostShimSource = try? source(named: hostShim)
+        else { return nil }
+
+        var parts = [nativeShimSource]
+        for name in breezePolyfills {
+            guard let polyfill = try? source(named: name) else { return nil }
+            parts.append(polyfill)
+        }
+        parts.append(hostShimSource)
+        return parts.joined(separator: "\n;\n")
+    }()
+
+    /// 完整注入脚本；资源缺失时抛错
+    static func injectionScript() throws -> String {
+        guard let assembled else { throw PluginError.missingRuntimeScript }
+        return assembled
+    }
+
+    /// 从 App bundle 读取脚本，兼容「保留目录结构」与「平铺」两种打包方式
+    private static func source(named name: String) throws -> String {
+        let url = Bundle.main.url(forResource: name, withExtension: "js", subdirectory: "PluginRuntime")
+            ?? Bundle.main.url(forResource: name, withExtension: "js")
+        guard let url, let text = try? String(contentsOf: url, encoding: .utf8) else {
+            throw PluginError.missingRuntimeScript
+        }
+        return text
+    }
+}
