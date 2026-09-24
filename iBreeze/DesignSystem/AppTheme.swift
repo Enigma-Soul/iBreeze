@@ -9,6 +9,8 @@ enum AppTheme {
         static let page: CGFloat = 16
         /// 区块之间的纵向间距
         static let section: CGFloat = 24
+        /// 网格与横滑列表的间距
+        static let grid: CGFloat = 12
     }
 
     /// 圆角
