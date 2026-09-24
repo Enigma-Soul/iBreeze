@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 设置页：网络代理、简繁转换、插件管理、关于
+/// 设置页：网络代理、简繁转换、插件管理、数据管理、关于
 struct SettingsView: View {
     @AppStorage(SettingsKey.proxyEnabled) private var proxyEnabled = false
     @AppStorage(SettingsKey.proxyType) private var proxyType = ProxyType.http.rawValue
@@ -8,15 +8,60 @@ struct SettingsView: View {
     @AppStorage(SettingsKey.proxyPort) private var proxyPort = ""
     @AppStorage(SettingsKey.chineseConversion) private var chineseConversion = ChineseConversion.off.rawValue
 
+    @State private var pendingAction: DataAction?
+    @State private var resultMessage: String?
+
+    /// 需要二次确认的数据操作
+    private enum DataAction: String, Identifiable {
+        case clearImageCache = "清空图片缓存"
+        case clearHistory = "清空浏览记录"
+
+        var id: String { rawValue }
+    }
+
     var body: some View {
         Form {
             proxySection
             languageSection
             pluginSection
+            dataSection
             aboutSection
         }
         .navigationTitle("设置")
         .navigationBarTitleDisplayMode(.inline)
+        .confirmationDialog(
+            pendingAction.map { "确定要\($0.rawValue)？" } ?? "",
+            isPresented: Binding(get: { pendingAction != nil }, set: { if !$0 { pendingAction = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button("确定", role: .destructive) {
+                guard let action = pendingAction else { return }
+                pendingAction = nil
+                Task { await perform(action) }
+            }
+        }
+        .alert("完成", isPresented: Binding(get: { resultMessage != nil }, set: { if !$0 { resultMessage = nil } })) {
+            Button("好", role: .cancel) {}
+        } message: {
+            Text(resultMessage ?? "")
+        }
+    }
+
+    private var dataSection: some View {
+        Section("数据") {
+            Button(DataAction.clearImageCache.rawValue) { pendingAction = .clearImageCache }
+            Button(DataAction.clearHistory.rawValue) { pendingAction = .clearHistory }
+        }
+    }
+
+    private func perform(_ action: DataAction) async {
+        switch action {
+        case .clearImageCache:
+            await ComicImageLoader.shared.clear()
+        case .clearHistory:
+            ReadingHistoryStore.shared.clear()
+        }
+        resultMessage = "已\(action.rawValue)"
     }
 
     private var proxySection: some View {
