@@ -46,7 +46,7 @@ final class ReaderViewModel {
             pages = snapshot.data?.chapter?.pages ?? []
             chapters = snapshot.data?.chapters ?? []
             errorMessage = pages.isEmpty ? "该章节没有返回图片" : nil
-            prefetch()
+            prefetch(around: 0)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -59,10 +59,16 @@ final class ReaderViewModel {
         await load()
     }
 
-    /// 预取前几页，减少滚动时的白屏
-    private func prefetch() {
-        let urls = pages.prefix(3).compactMap(\.url)
-        guard !urls.isEmpty, let source = try? PluginRegistry.shared.cachedSource(for: sourceID) else { return }
+    /// 预取当前位置往后三页，减少滚动时的白屏
+    func prefetch(around index: Int) {
+        guard let source = try? PluginRegistry.shared.cachedSource(for: sourceID) else { return }
+
+        let start = max(0, index)
+        let end = min(pages.count, index + 4)
+        guard start < end else { return }
+
+        let urls = pages[start..<end].compactMap(\.url)
+        guard !urls.isEmpty else { return }
         Task { await ComicImageLoader.shared.prefetch(pluginUUID: sourceID, urls: urls, source: source) }
     }
 }
@@ -75,6 +81,10 @@ struct ReaderPage: View {
     let comicTitle: String
 
     @State private var viewModel: ReaderViewModel
+    /// 当前停在的页，用于页码显示与预取
+    @State private var currentPageID: String?
+    /// 点击画面可隐藏顶栏与章节条，进入沉浸阅读
+    @State private var showsChrome = true
 
     init(sourceID: String, comicID: String, chapterID: String, chapterName: String, comicTitle: String) {
         self.sourceID = sourceID
@@ -94,28 +104,42 @@ struct ReaderPage: View {
                 ForEach(viewModel.pages) { page in
                     PluginImageView(sourceID: sourceID, url: page.url, contentMode: .fit)
                         .frame(maxWidth: .infinity)
+                        .id(page.id)
                 }
             }
         }
+        .scrollPosition(id: $currentPageID)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            withAnimation(.easeInOut(duration: 0.2)) { showsChrome.toggle() }
+        }
         .navigationTitle(chapterName.convertedChinese)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbarVisibility(showsChrome ? .visible : .hidden, for: .navigationBar)
         .task { if viewModel.pages.isEmpty { await viewModel.load() } }
+        .onChange(of: currentPageID) { _, _ in viewModel.prefetch(around: currentPageNumber - 1) }
         .overlay(alignment: .bottom) { chapterBar }
         .overlay { emptyOverlay }
         .sensoryFeedback(.success, trigger: viewModel.chapterID)
-        .toolbarVisibility(.hidden, for: .bottomBar)
     }
 
     /// 悬浮章节切换条：液态玻璃质感，压在内容之上
     @ViewBuilder
     private var chapterBar: some View {
-        if !viewModel.pages.isEmpty {
-            HStack(spacing: 18) {
+        if showsChrome, !viewModel.pages.isEmpty {
+            HStack(spacing: 16) {
                 chapterButton(title: "上一章", systemImage: "chevron.left", chapter: viewModel.previousChapter)
-                Text((chapterName.isEmpty ? comicTitle : chapterName).convertedChinese)
-                    .font(.footnote)
-                    .lineLimit(1)
-                    .frame(maxWidth: 160)
+
+                VStack(spacing: 2) {
+                    Text((chapterName.isEmpty ? comicTitle : chapterName).convertedChinese)
+                        .font(.footnote)
+                        .lineLimit(1)
+                    Text("\(currentPageNumber) / \(viewModel.pages.count)")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: 170)
+
                 chapterButton(title: "下一章", systemImage: "chevron.right", chapter: viewModel.nextChapter)
             }
             .padding(.horizontal, 18)
@@ -123,6 +147,14 @@ struct ReaderPage: View {
             .glassSurface(in: Capsule())
             .padding(.bottom, 12)
         }
+    }
+
+    /// 当前页序号，从 1 起
+    private var currentPageNumber: Int {
+        guard let currentPageID,
+              let index = viewModel.pages.firstIndex(where: { $0.id == currentPageID })
+        else { return 1 }
+        return index + 1
     }
 
     private func chapterButton(title: String, systemImage: String, chapter: ChapterSummary?) -> some View {

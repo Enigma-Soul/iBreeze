@@ -50,6 +50,15 @@ actor ComicImageLoader {
         }
     }
 
+    /// 清空内存与磁盘缓存
+    func clear() {
+        memory.removeAllObjects()
+        inFlight.removeAll()
+        try? FileManager.default.removeItem(at: directory)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        logger.info("已清空图片缓存")
+    }
+
     private func download(key: String, url: String, source: PluginSource) async -> UIImage? {
         do {
             let data = try await source.imageBytes(url: url)
