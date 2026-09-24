@@ -7,20 +7,13 @@ final class PluginHTTPClient: @unchecked Sendable {
 
     private let lock = NSLock()
     private var tasks: [Int: URLSessionDataTask] = [:]
-    private let session: URLSession
+    private var session: URLSession
+    /// 建 session 时用的代理配置，设置页改动后自动重建
+    private var proxy: ProxyConfiguration?
 
     init(proxy: ProxyConfiguration? = ProxyConfiguration.current()) {
-        let configuration = URLSessionConfiguration.default
-        configuration.timeoutIntervalForRequest = 30
-        configuration.timeoutIntervalForResource = 300
-        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
-        configuration.httpAdditionalHeaders = [
-            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15"
-        ]
-        if let proxy {
-            configuration.connectionProxyDictionary = proxy.connectionProxyDictionary
-        }
-        session = URLSession(configuration: configuration)
+        self.proxy = proxy
+        session = Self.makeSession(proxy: proxy)
     }
 
     /// 执行请求，返回给 JS 的负载，响应体以 base64 回传
@@ -51,7 +44,7 @@ final class PluginHTTPClient: @unchecked Sendable {
         }
 
         do {
-            let (data, response) = try await perform(request, id: id)
+            let (data, response) = try await perform(request, id: id, session: currentSession())
             let http = response as? HTTPURLResponse
             let status = http?.statusCode ?? 0
             return [
@@ -78,7 +71,21 @@ final class PluginHTTPClient: @unchecked Sendable {
         task?.cancel()
     }
 
-    private func perform(_ request: URLRequest, id: Int) async throws -> (Data, URLResponse) {
+    /// 代理设置变了就重建 session
+    private func currentSession() -> URLSession {
+        let configured = ProxyConfiguration.current()
+
+        lock.lock()
+        defer { lock.unlock() }
+        if configured != proxy {
+            proxy = configured
+            session.invalidateAndCancel()
+            session = Self.makeSession(proxy: configured)
+        }
+        return session
+    }
+
+    private func perform(_ request: URLRequest, id: Int, session: URLSession) async throws -> (Data, URLResponse) {
         try await withCheckedThrowingContinuation { continuation in
             let task = session.dataTask(with: request) { [weak self] data, response, error in
                 self?.forget(id: id)
@@ -93,6 +100,20 @@ final class PluginHTTPClient: @unchecked Sendable {
             lock.unlock()
             task.resume()
         }
+    }
+
+    private static func makeSession(proxy: ProxyConfiguration?) -> URLSession {
+        let configuration = URLSessionConfiguration.default
+        configuration.timeoutIntervalForRequest = 30
+        configuration.timeoutIntervalForResource = 300
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        configuration.httpAdditionalHeaders = [
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15"
+        ]
+        if let proxy {
+            configuration.connectionProxyDictionary = proxy.connectionProxyDictionary
+        }
+        return URLSession(configuration: configuration)
     }
 
     private func forget(id: Int) {

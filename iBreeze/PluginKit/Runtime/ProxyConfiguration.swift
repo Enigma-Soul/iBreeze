@@ -1,7 +1,7 @@
 import Foundation
 
 /// 代理配置，来源于设置页
-struct ProxyConfiguration: Sendable {
+struct ProxyConfiguration: Sendable, Equatable {
     var type: ProxyType
     var host: String
     var port: Int

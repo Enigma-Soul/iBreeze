@@ -48,6 +48,18 @@ extension JSONValue {
         return dictionary[key]
     }
 
+    /// 转回 `JSONSerialization` 能接受的形式，用于拼装插件入参
+    var anyValue: Any {
+        switch self {
+        case .string(let value): value
+        case .number(let value): value
+        case .bool(let value): value
+        case .object(let value): value.mapValues(\.anyValue)
+        case .array(let value): value.map(\.anyValue)
+        case .null: NSNull()
+        }
+    }
+
     /// 取字符串，数字与布尔也会转成字符串
     var stringValue: String? {
         switch self {
