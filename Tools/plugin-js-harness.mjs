@@ -22,6 +22,18 @@ import {
   randomUUID,
   timingSafeEqual,
 } from "node:crypto";
+import { spawnSync } from "node:child_process";
+
+// Node 的 fetch 默认不读 HTTP_PROXY，而 NODE_USE_ENV_PROXY 只在启动时生效。
+// 检测到本机配置了代理就带上它重启一次，这样在 Clash 之类环境下直接跑即可。
+if (!process.env.NODE_USE_ENV_PROXY && !process.env.HARNESS_REEXEC
+  && (process.env.HTTP_PROXY || process.env.HTTPS_PROXY)) {
+  const result = spawnSync(process.execPath, process.argv.slice(1), {
+    stdio: "inherit",
+    env: { ...process.env, NODE_USE_ENV_PROXY: "1", HARNESS_REEXEC: "1" },
+  });
+  process.exit(result.status ?? 1);
+}
 
 /// 用法：
 ///   node Tools/plugin-js-harness.mjs                                 跑 JS 层自检
@@ -55,7 +67,6 @@ const config = new Map();
 const bytes = (value) => Buffer.from(value ?? []);
 const digestPayload = (buffer) => ({ hex: buffer.toString("hex"), base64: buffer.toString("base64") });
 
-/// 宿主路由桩：与 PluginHostBridge 的行为保持最小一致
 /// 唯一异步的路由：真实网络请求
 async function httpRequest(args) {
   const [, method, url, headers, bodyText, bodyBase64] = args;
@@ -86,6 +97,7 @@ async function httpRequest(args) {
   };
 }
 
+/// 宿主路由桩：与 PluginHostBridge 的行为保持最小一致
 function handleRoute(route, args) {
   if (process.env.HARNESS_DEBUG) console.error("route:", route, JSON.stringify(args));
 
