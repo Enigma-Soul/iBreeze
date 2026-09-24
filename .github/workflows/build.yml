@@ -29,6 +29,7 @@ jobs:
 
       - name: 运行单元测试
         run: |
+          set -o pipefail
           DEVICE=$(xcrun simctl list devices available | grep -oE '^ +iPhone [^(]*' | head -1 | sed 's/^ *//; s/ *$//')
           echo "使用模拟器：$DEVICE"
           xcodebuild test \
@@ -36,7 +37,7 @@ jobs:
             -scheme iBreeze \
             -destination "platform=iOS Simulator,name=$DEVICE" \
             CODE_SIGNING_ALLOWED=NO \
-            -quiet
+            2>&1 | tee "$RUNNER_TEMP/test.log" | { grep -E "Test run|✔|✘|error:|TEST (SUCCEEDED|FAILED)" | tail -40 || true; }
 
       - name: 编译归档（不签名）
         run: |
