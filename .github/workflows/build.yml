@@ -32,7 +32,8 @@ jobs:
           set -o pipefail
           DEVICE=$(xcrun simctl list devices available | grep -oE '^ +iPhone [^(]*' | head -1 | sed 's/^ *//; s/ *$//')
           echo "使用模拟器：$DEVICE"
-          xcodebuild test \
+          # TEST_RUNNER_ 前缀的变量会以去掉前缀的形式传进测试进程，用于打开真实插件冒烟测试
+          TEST_RUNNER_IBREEZE_SMOKE=1 xcodebuild test \
             -project iBreeze.xcodeproj \
             -scheme iBreeze \
             -destination "platform=iOS Simulator,name=$DEVICE" \
