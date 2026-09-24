@@ -7,7 +7,7 @@ import os
 /// JSContext 被约束在一条串行队列上：插件执行不占用主线程，宿主能力通过
 /// `bridge` 路由异步回调回 JS。
 final class PluginRuntime: @unchecked Sendable {
-    private let queue: DispatchQueue
+    private let executor: PluginRuntimeThread
     private let host: PluginHostBridge
     private let timers = PluginTimerCenter()
     private let logger = Logger(subsystem: "com.enigma-soul.ibreeze", category: "PluginRuntime")
@@ -15,7 +15,7 @@ final class PluginRuntime: @unchecked Sendable {
 
     init(pluginID: String, host: PluginHostBridge) {
         self.host = host
-        self.queue = DispatchQueue(label: "com.enigma-soul.ibreeze.plugin.\(pluginID)")
+        executor = PluginRuntimeThread(name: "com.enigma-soul.ibreeze.plugin.\(pluginID)")
         timers.setFireHandler { [weak self] hostID, payload in
             self?.deliverTimerComplete(hostID: hostID, payload: payload)
         }
@@ -91,6 +91,7 @@ final class PluginRuntime: @unchecked Sendable {
             timers.cancelAll()
             context = nil
         }
+        executor.stop()
     }
 
     // MARK: - 宿主函数注入
@@ -162,9 +163,9 @@ final class PluginRuntime: @unchecked Sendable {
         }
     }
 
-    /// 在 JS 队列上、且运行时仍然存活时执行一段操作
+    /// 在 JS 线程上、且运行时仍然存活时执行一段操作
     private func onContext(_ body: @escaping @Sendable (JSContext) -> Void) {
-        queue.async { [weak self] in
+        executor.submit { [weak self] in
             guard let self, let context = self.context else { return }
             body(context)
         }
@@ -174,7 +175,7 @@ final class PluginRuntime: @unchecked Sendable {
 
     private func run<T: Sendable>(_ body: @escaping @Sendable () throws -> T) async throws -> T {
         try await withCheckedThrowingContinuation { continuation in
-            queue.async {
+            executor.submit {
                 do {
                     continuation.resume(returning: try body())
                 } catch {
