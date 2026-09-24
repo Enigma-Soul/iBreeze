@@ -12,14 +12,14 @@ final class ComicListViewModel {
 
     private let sourceID: String
     private let fnPath: String
-    private let core: [String: Any]
+    private let core: JSONValue?
     private let extern: JSONValue?
     private var loadedPages = 0
 
     init(sourceID: String, fnPath: String, core: JSONValue?, extern: JSONValue?) {
         self.sourceID = sourceID
         self.fnPath = fnPath
-        self.core = (core?.anyValue as? [String: Any]) ?? [:]
+        self.core = core
         self.extern = extern
     }
 

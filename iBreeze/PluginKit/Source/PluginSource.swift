@@ -34,10 +34,10 @@ final class PluginSource: @unchecked Sendable {
         fnPath: String,
         page: Int? = nil,
         keyword: String? = nil,
-        core: [String: Any] = [:],
+        core: JSONValue? = nil,
         extern: JSONValue? = nil
     ) async throws -> ComicPagedList {
-        var payload = core
+        var payload = (core?.anyValue as? [String: Any]) ?? [:]
         if let page { payload["page"] = page }
         if let keyword { payload["keyword"] = keyword }
         payload["extern"] = extern?.anyValue ?? [:]
@@ -84,36 +84,36 @@ final class PluginSource: @unchecked Sendable {
     // MARK: - 可选契约
 
     /// 发现页默认列表场景
-    func sceneBundle() async throws -> [String: Any] {
-        try await runtime.invokeObject(fnPath: "getComicListSceneBundle")
+    func sceneBundle() async throws -> JSONValue {
+        try await invokeJSON(fnPath: "getComicListSceneBundle")
     }
 
     /// 高级搜索筛选项
-    func advancedSearch() async throws -> [String: Any] {
-        try await runtime.invokeObject(fnPath: "getAdvancedSearchScheme")
+    func advancedSearch() async throws -> JSONValue {
+        try await invokeJSON(fnPath: "getAdvancedSearchScheme")
     }
 
     /// 列表筛选器
-    func filterBundle(fnPath: String) async throws -> [String: Any] {
-        try await runtime.invokeObject(fnPath: fnPath)
+    func filterBundle(fnPath: String) async throws -> JSONValue {
+        try await invokeJSON(fnPath: fnPath)
     }
 
     /// 插件设置页
-    func settingsBundle() async throws -> [String: Any] {
-        try await runtime.invokeObject(fnPath: "getSettingsBundle")
+    func settingsBundle() async throws -> JSONValue {
+        try await invokeJSON(fnPath: "getSettingsBundle")
     }
 
-    /// 收藏工作流入口（新协议）
-    func favoriteAction(phase: String, payload: [String: Any]) async throws -> [String: Any] {
-        try await runtime.invokeObject(
+    /// 收藏工作流（`phase` 取 `start` / `continue`）
+    func favoriteAction(phase: String, payload: JSONValue) async throws -> JSONValue {
+        try await invokeJSON(
             fnPath: phase == "start" ? "startFavoriteAction" : "continueFavoriteAction",
-            payloadJSON: try Self.json(payload)
+            payloadJSON: try Self.json(payload.anyValue as? [String: Any] ?? [:])
         )
     }
 
-    /// 简化版：点赞 / 收藏切换
-    func toggleFavorite(comicID: String, current: Bool, extern: JSONValue? = nil) async throws -> [String: Any] {
-        try await runtime.invokeObject(
+    /// 收藏切换（旧协议，仍然被多数插件实现）
+    func toggleFavorite(comicID: String, current: Bool, extern: JSONValue? = nil) async throws -> JSONValue {
+        try await invokeJSON(
             fnPath: "toggleFavorite",
             payloadJSON: try Self.json([
                 "comicId": comicID,
@@ -121,6 +121,17 @@ final class PluginSource: @unchecked Sendable {
                 "extern": extern?.anyValue ?? [:]
             ])
         )
+    }
+
+    // MARK: - 内部辅助
+
+    /// 调用并解成 JSONValue，避免 `[String: Any]` 跨隔离边界
+    private func invokeJSON(fnPath: String, payloadJSON: String = "{}") async throws -> JSONValue {
+        let json = try await runtime.invoke(fnPath: fnPath, payloadJSON: payloadJSON)
+        guard let data = json.data(using: .utf8) else {
+            throw PluginError.invalidPayload("插件返回值不是合法 UTF-8")
+        }
+        return try JSONDecoder().decode(JSONValue.self, from: data)
     }
 
     private static func json(_ payload: [String: Any]) throws -> String {

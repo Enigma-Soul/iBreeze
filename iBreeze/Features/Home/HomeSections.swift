@@ -226,14 +226,11 @@ struct RecommendedComicsSection: View {
     }
 
     /// 从场景包里取默认列表的请求参数
-    private static func defaultScene(from bundle: [String: Any]) -> (fnPath: String, core: [String: Any])? {
+    private static func defaultScene(from bundle: JSONValue) -> (fnPath: String, core: JSONValue?)? {
         guard
-            let data = bundle["data"] as? [String: Any],
-            let scene = data["scene"] as? [String: Any],
-            let body = scene["body"] as? [String: Any],
-            let request = body["request"] as? [String: Any],
-            let fnPath = request["fnPath"] as? String
+            let request = bundle["data"]?["scene"]?["body"]?["request"],
+            let fnPath = request["fnPath"]?.stringValue
         else { return nil }
-        return (fnPath, request["core"] as? [String: Any] ?? [:])
+        return (fnPath, request["core"])
     }
 }
