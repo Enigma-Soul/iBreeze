@@ -129,5 +129,11 @@ through `PluginSource.imageBytes` via `ComicImageLoader` (memory + disk, keyed b
 ## Conventions
 
 - Comments and commit messages in Chinese; identifiers in English.
+- Conventional Commits, since this is the owner's own project — `feat(runtime): …`, `fix(ui): …`,
+  `chore(ci): …` (scope examples: `runtime`, `install`, `ui`, `docs`, `test`, `ci`).
 - One type per file; `@MainActor @Observable` for view models and stores.
-- Work on `develop`; `main` only receives verified merges.
+- Work on `develop` only. `main` receives PRs **from `develop`** — never push to `main` directly.
+  Before opening a PR, lay out how many PRs and what each contains, then wait for confirmation.
+- Release notes follow the owner's CHANGELOG format (newest version block on top, grouped by
+  `### Feat(scope)` / `### Fix(scope)` / `### Refactor` / `### Chore`, Chinese bullets that say
+  what changed for the user rather than a per-file diff).
