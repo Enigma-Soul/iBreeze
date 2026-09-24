@@ -30,7 +30,7 @@ struct SettingsView: View {
         .navigationTitle("设置")
         .navigationBarTitleDisplayMode(.inline)
         .confirmationDialog(
-            pendingAction.map { "确定要\($0.rawValue)？" } ?? "",
+            confirmationTitle,
             isPresented: Binding(get: { pendingAction != nil }, set: { if !$0 { pendingAction = nil } }),
             titleVisibility: .visible
         ) {
@@ -45,6 +45,11 @@ struct SettingsView: View {
         } message: {
             Text(resultMessage ?? "")
         }
+    }
+
+    private var confirmationTitle: String {
+        guard let pendingAction else { return "" }
+        return "确定要\(pendingAction.rawValue)？"
     }
 
     private var dataSection: some View {

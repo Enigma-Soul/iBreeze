@@ -76,7 +76,6 @@ final class ReaderViewModel {
 /// 阅读页：整章纵向连读
 struct ReaderPage: View {
     let sourceID: String
-    let comicID: String
     let chapterName: String
     let comicTitle: String
 
@@ -88,7 +87,6 @@ struct ReaderPage: View {
 
     init(sourceID: String, comicID: String, chapterID: String, chapterName: String, comicTitle: String) {
         self.sourceID = sourceID
-        self.comicID = comicID
         self.chapterName = chapterName
         self.comicTitle = comicTitle
         _viewModel = State(initialValue: ReaderViewModel(
