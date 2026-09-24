@@ -65,6 +65,15 @@ module.exports = {
     },
     binary() {
         return new Uint8Array([1, 2, 3, 4]);
+    },
+    async cryptoRoundTrip() {
+        return {
+            // createHash 走 __crypto_*_bytes 同步钩子，hmacSha256 走 bridge 异步路由
+            digest: crypto.createHash("sha256").update("hello").digest("hex"),
+            hmac: await crypto.hmacSha256("key", "hello"),
+            randomLength: crypto.randomBytes(8).length,
+            uuidLength: crypto.randomUUID().length
+        };
     }
 };
 """#
@@ -158,6 +167,14 @@ struct PluginWebRuntimeTests {
 
         let data = try await runtime.invokeData(fnPath: "binary")
         #expect(Array(data) == [1, 2, 3, 4])
+
+        let crypto = try await runtime.invokeObject(fnPath: "cryptoRoundTrip")
+        #expect(crypto["digest"] as? String
+            == "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824")
+        #expect(crypto["hmac"] as? String
+            == "9307b3b915efb5171ff14d8cb55fbcc798c6c0ef1456d66ded1a6aa723a58b7b")
+        #expect(crypto["randomLength"] as? Int == 8)
+        #expect(crypto["uuidLength"] as? Int == 36)
     }
 }
 

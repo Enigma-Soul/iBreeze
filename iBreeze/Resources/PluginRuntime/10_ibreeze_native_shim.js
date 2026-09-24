@@ -93,12 +93,12 @@
     return new Promise(function (resolve, reject) {
       var id = ++sequence;
       pending.set(id, { resolve: resolve, reject: reject });
-      __nativeCall(id, route, safeStringify(args || []));
+      __nativeCall(id, route, stringifyArguments(args || []));
     });
   }
 
   function hostCallSync(route, args) {
-    var raw = __nativeCallSync(route, safeStringify(args || []));
+    var raw = __nativeCallSync(route, stringifyArguments(args || []));
     if (raw === null || raw === undefined || raw === "") return null;
     var envelope = JSON.parse(raw);
     if (!envelope.ok) throw new Error(envelope.payload);
@@ -125,6 +125,26 @@
     return JSON.parse(payload);
   }
 
+  /// 把嵌套的二进制转成字节数组：Breeze 的宿主路由就是按数组收字节的
+  function toJSONValue(value) {
+    if (value === null || value === undefined) return null;
+    if (value instanceof Uint8Array) return Array.prototype.slice.call(value);
+    if (value instanceof ArrayBuffer) return Array.prototype.slice.call(new Uint8Array(value));
+    if (ArrayBuffer.isView(value)) {
+      return Array.prototype.slice.call(new Uint8Array(value.buffer, value.byteOffset, value.byteLength));
+    }
+    if (Array.isArray(value)) return value.map(toJSONValue);
+    if (typeof value === "object") {
+      var plain = {};
+      Object.keys(value).forEach(function (key) {
+        plain[key] = toJSONValue(value[key]);
+      });
+      return plain;
+    }
+    return value;
+  }
+
+  /// 出参序列化：顶层二进制用 Base64 信封，其余走普通 JSON
   function safeStringify(value) {
     if (value === undefined) return "null";
     if (value instanceof Uint8Array) {
@@ -137,6 +157,15 @@
       return JSON.stringify(value);
     } catch (error) {
       return JSON.stringify({ error: "无法序列化为 JSON: " + describe(error) });
+    }
+  }
+
+  /// 入参序列化
+  function stringifyArguments(value) {
+    try {
+      return JSON.stringify(toJSONValue(value));
+    } catch (error) {
+      return JSON.stringify({ error: "参数无法序列化为 JSON: " + describe(error) });
     }
   }
 
@@ -268,6 +297,39 @@
 
   globalThis.__http_request_cancel = function (requestId) {
     hostCall("http.cancel", [Number(requestId)]).catch(function () {});
+  };
+
+  // ---- 加密：同步桥到 Swift（Breeze 的 __crypto_* 钩子约定：字节数组进，{hex, base64} 出）----
+  function cryptoHook(route, arity) {
+    return function () {
+      var args = Array.prototype.slice.call(arguments, 0, arity).map(function (item) {
+        if (item === null || item === undefined) return null;
+        if (Array.isArray(item)) return item;
+        return Array.prototype.slice.call(toBytes(item));
+      });
+      return hostCallSync(route, args);
+    };
+  }
+
+  globalThis.__crypto_sha1_bytes = cryptoHook("crypto.sha1_bytes", 1);
+  globalThis.__crypto_sha256_bytes = cryptoHook("crypto.sha256_bytes", 1);
+  globalThis.__crypto_sha512_bytes = cryptoHook("crypto.sha512_bytes", 1);
+  globalThis.__crypto_hmac_sha1_bytes = cryptoHook("crypto.hmac_sha1_bytes", 2);
+  globalThis.__crypto_hmac_sha256_bytes = cryptoHook("crypto.hmac_sha256_bytes", 2);
+  globalThis.__crypto_hmac_sha512_bytes = cryptoHook("crypto.hmac_sha512_bytes", 2);
+  globalThis.__crypto_pbkdf2_sha256_bytes = cryptoHook("crypto.pbkdf2_sha256_bytes", 4);
+  globalThis.__crypto_aes_cbc_pkcs7_encrypt_bytes = cryptoHook("crypto.aes_cbc_pkcs7_encrypt_bytes", 3);
+  globalThis.__crypto_aes_cbc_pkcs7_decrypt_bytes = cryptoHook("crypto.aes_cbc_pkcs7_decrypt_bytes", 3);
+  globalThis.__crypto_aes_gcm_encrypt_bytes = cryptoHook("crypto.aes_gcm_encrypt_bytes", 4);
+  globalThis.__crypto_aes_gcm_decrypt_bytes = cryptoHook("crypto.aes_gcm_decrypt_bytes", 4);
+  globalThis.__crypto_timing_safe_equal_bytes = cryptoHook("crypto.timing_safe_equal_bytes", 2);
+
+  globalThis.__crypto_random_bytes = function (size) {
+    return hostCallSync("crypto.random_bytes", [Number(size) || 0]);
+  };
+
+  globalThis.__crypto_random_uuid_v4 = function () {
+    return hostCallSync("crypto.random_uuid_v4", []);
   };
 
   // ---- 定时器：交给 Swift 的真定时器 ----

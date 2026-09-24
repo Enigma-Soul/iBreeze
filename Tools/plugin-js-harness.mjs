@@ -12,6 +12,16 @@ import { readFileSync } from "node:fs";
 import { createContext, runInContext } from "node:vm";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHash,
+  createHmac,
+  pbkdf2Sync,
+  randomBytes,
+  randomUUID,
+  timingSafeEqual,
+} from "node:crypto";
 
 const runtimeDir = join(dirname(fileURLToPath(import.meta.url)), "..", "iBreeze", "Resources", "PluginRuntime");
 
@@ -35,9 +45,70 @@ const INJECTION_ORDER = [
 const cache = new Map();
 const config = new Map();
 
+const bytes = (value) => Buffer.from(value ?? []);
+const digestPayload = (buffer) => ({ hex: buffer.toString("hex"), base64: buffer.toString("base64") });
+
 /// 宿主路由桩：与 PluginHostBridge 的行为保持最小一致
 function handleRoute(route, args) {
+  if (process.env.HARNESS_DEBUG) console.error("route:", route, JSON.stringify(args));
   switch (route) {
+    // 加密：与 PluginCryptoRoutes 的约定一致
+    case "crypto.md5":
+    case "crypto.sha1":
+    case "crypto.sha256":
+    case "crypto.sha512":
+      return createHash(route.slice("crypto.".length)).update(bytes(args[0])).digest("hex");
+    case "crypto.hmac_sha256":
+    case "crypto.hmac_sha1":
+    case "crypto.hmac_sha512":
+      return createHmac(route.slice("crypto.hmac_".length), bytes(args[0])).update(bytes(args[1])).digest("hex");
+    case "crypto.md5_hex":
+    case "crypto.sha1_hex":
+    case "crypto.sha256_hex":
+    case "crypto.sha512_hex":
+      return createHash(route.slice("crypto.".length, -4)).update(String(args[0]), "utf8").digest("hex");
+    case "crypto.sha1_bytes":
+    case "crypto.sha256_bytes":
+    case "crypto.sha512_bytes":
+      return digestPayload(createHash(route.slice("crypto.".length, -6)).update(bytes(args[0])).digest());
+    case "crypto.hmac_sha1_bytes":
+    case "crypto.hmac_sha256_bytes":
+    case "crypto.hmac_sha512_bytes":
+      return digestPayload(
+        createHmac(route.slice("crypto.hmac_".length, -6), bytes(args[0])).update(bytes(args[1])).digest()
+      );
+    case "crypto.pbkdf2_sha256_bytes":
+      return digestPayload(pbkdf2Sync(bytes(args[0]), bytes(args[1]), args[2], args[3], "sha256"));
+    case "crypto.aes_cbc_pkcs7_encrypt_bytes":
+    case "crypto.aes_cbc_pkcs7_decrypt_bytes": {
+      const encrypt = route.endsWith("encrypt_bytes");
+      const cipher = encrypt ? createCipheriv : createDecipheriv;
+      const machine = cipher("aes-256-cbc", bytes(args[1]), bytes(args[2]));
+      return digestPayload(Buffer.concat([machine.update(bytes(args[0])), machine.final()]));
+    }
+    case "crypto.aes_gcm_encrypt_bytes":
+    case "crypto.aes_gcm_decrypt_bytes": {
+      const encrypt = route.endsWith("encrypt_bytes");
+      const aad = args[3] === null || args[3] === undefined ? null : bytes(args[3]);
+      const machine = (encrypt ? createCipheriv : createDecipheriv)("aes-256-gcm", bytes(args[1]), bytes(args[2]));
+      if (aad) machine.setAAD(aad);
+      if (encrypt) {
+        const out = Buffer.concat([machine.update(bytes(args[0])), machine.final(), machine.getAuthTag()]);
+        return digestPayload(out);
+      }
+      machine.setAuthTag(bytes(args[0]).subarray(-16));
+      const plain = Buffer.concat([machine.update(bytes(args[0]).subarray(0, -16)), machine.final()]);
+      return digestPayload(plain);
+    }
+    case "crypto.timing_safe_equal_bytes": {
+      const [left, right] = [bytes(args[0]), bytes(args[1])];
+      return { equal: left.length === right.length && timingSafeEqual(left, right) };
+    }
+    case "crypto.random_bytes":
+      return Array.from(randomBytes(Number(args[0])));
+    case "crypto.random_uuid_v4":
+      return { uuid: randomUUID() };
+
     case "cache.get":
     case "cache.get.sync":
       return cache.has(args[0]) ? JSON.parse(cache.get(args[0])) : (args[1] ?? null);
@@ -185,6 +256,14 @@ module.exports = {
   binary() {
     return new Uint8Array([1, 2, 3, 4]);
   },
+  async cryptoRoundTrip() {
+    return {
+      digest: crypto.createHash("sha256").update("hello").digest("hex"),
+      hmac: await crypto.hmacSha256("key", "hello"),
+      randomLength: crypto.randomBytes(8).length,
+      uuidLength: crypto.randomUUID().length,
+    };
+  },
   boom() {
     throw new Error("插件内部错误");
   },
@@ -219,6 +298,20 @@ check("fetch 错误路径", fetchResult.failed === true, JSON.stringify(fetchRes
 
 const binary = JSON.parse(await runtime.invoke("binary"));
 check("二进制信封", typeof binary.__ibreezeBinary === "string" && atob(binary.__ibreezeBinary).length === 4, JSON.stringify(binary));
+
+const crypto = JSON.parse(await runtime.invoke("cryptoRoundTrip"));
+check(
+  "SHA-256（同步钩子）",
+  crypto.digest === "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+  String(crypto.digest)
+);
+check(
+  "HMAC-SHA256（异步路由）",
+  crypto.hmac === "9307b3b915efb5171ff14d8cb55fbcc798c6c0ef1456d66ded1a6aa723a58b7b",
+  JSON.stringify(crypto.hmac)
+);
+check("randomBytes", crypto.randomLength === 8, String(crypto.randomLength));
+check("randomUUID", crypto.uuidLength === 36, String(crypto.uuidLength));
 
 let threw = false;
 try {

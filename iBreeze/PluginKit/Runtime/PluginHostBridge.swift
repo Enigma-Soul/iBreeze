@@ -69,7 +69,10 @@ final class PluginHostBridge: @unchecked Sendable {
         case "runtime.gc": return "null"
         case "runtime.is_task_group_cancelled": return try Self.encode(false)
 
-        default: throw PluginError.unsupportedRoute(route)
+        // 加密路由数量多且自成一套约定，单独成文件
+        default:
+            if let payload = try PluginCryptoRoutes.dispatch(route: route, args: args) { return payload }
+            throw PluginError.unsupportedRoute(route)
         }
     }
 
@@ -81,6 +84,9 @@ final class PluginHostBridge: @unchecked Sendable {
             case "cache.get.sync": return Self.syncEnvelope(ok: true, payload: try readCache(args))
             case "cache.set.sync": return Self.syncEnvelope(ok: true, payload: try writeCache(args))
             default:
+                if let payload = try PluginCryptoRoutes.dispatchSync(route: route, args: args) {
+                    return Self.syncEnvelope(ok: true, payload: payload)
+                }
                 let reason = PluginError.unsupportedRoute("\(route)(sync)").localizedDescription
                 return Self.syncEnvelope(ok: false, payload: reason)
             }
