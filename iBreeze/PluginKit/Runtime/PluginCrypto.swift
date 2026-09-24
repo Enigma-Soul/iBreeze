@@ -106,13 +106,15 @@ enum PluginCrypto {
         }
 
         var derived = Data(count: keyLength)
+        let passwordCount = password.count
+        let saltCount = salt.count
         let status = derived.withUnsafeMutableBytes { derivedBytes in
             password.withUnsafeBytes { passwordBytes in
                 salt.withUnsafeBytes { saltBytes in
                     CCKeyDerivationPBKDF(
                         CCPBKDFAlgorithm(kCCPBKDF2),
-                        passwordBytes.baseAddress?.assumingMemoryBound(to: CChar.self), password.count,
-                        saltBytes.baseAddress?.assumingMemoryBound(to: UInt8.self), salt.count,
+                        passwordBytes.baseAddress?.assumingMemoryBound(to: CChar.self), passwordCount,
+                        saltBytes.baseAddress?.assumingMemoryBound(to: UInt8.self), saltCount,
                         CCPseudoRandomAlgorithm(kCCPRFHmacAlgSHA256),
                         UInt32(rounds),
                         derivedBytes.baseAddress?.assumingMemoryBound(to: UInt8.self), keyLength
@@ -198,16 +200,20 @@ enum PluginCrypto {
 
         var output = Data(count: input.count + kCCBlockSizeAES128)
         var produced = 0
+        // 借用之前先把长度取出来，避免闭包内重叠访问
+        let keyCount = key.count
+        let inputCount = input.count
+        let capacity = output.count
         let status = output.withUnsafeMutableBytes { outputBytes in
             input.withUnsafeBytes { inputBytes in
                 key.withUnsafeBytes { keyBytes in
                     iv.withUnsafeBytes { ivBytes in
                         CCCrypt(
                             operation, CCAlgorithm(kCCAlgorithmAES), options,
-                            keyBytes.baseAddress, key.count,
+                            keyBytes.baseAddress, keyCount,
                             ivBytes.baseAddress,
-                            inputBytes.baseAddress, input.count,
-                            outputBytes.baseAddress, output.count,
+                            inputBytes.baseAddress, inputCount,
+                            outputBytes.baseAddress, capacity,
                             &produced
                         )
                     }
