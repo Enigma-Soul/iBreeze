@@ -11,9 +11,7 @@ final class PluginManagerViewModel {
     private(set) var errorMessage: String?
     var bundleURLText = ""
 
-    private var registry: PluginRegistry { .shared }
-
-    var installed: [InstalledPlugin] { registry.installed }
+    var installed: [InstalledPlugin] { PluginRegistry.shared.installed }
 
     func loadCloudPlugins() async {
         guard !isLoadingCloud, cloudPlugins.isEmpty else { return }
@@ -21,7 +19,7 @@ final class PluginManagerViewModel {
         defer { isLoadingCloud = false }
 
         do {
-            cloudPlugins = try await registry.cloudPlugins()
+            cloudPlugins = try await PluginRegistry.shared.cloudPlugins()
             errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
@@ -30,7 +28,7 @@ final class PluginManagerViewModel {
 
     func install(_ remote: RemotePlugin) async {
         await perform(id: remote.id) {
-            try await self.registry.install(remote)
+            try await PluginRegistry.shared.install(remote)
         }
     }
 
@@ -42,21 +40,21 @@ final class PluginManagerViewModel {
         }
 
         await perform(id: text) {
-            try await self.registry.install(bundleURL: url)
+            try await PluginRegistry.shared.install(bundleURL: url)
         }
         bundleURLText = ""
     }
 
     func update(_ plugin: InstalledPlugin) async {
         await perform(id: plugin.uuid) {
-            let updated = try await self.registry.update(plugin)
+            let updated = try await PluginRegistry.shared.update(plugin)
             if !updated { self.errorMessage = "\(plugin.name) 已是最新版本" }
         }
     }
 
     func uninstall(_ plugin: InstalledPlugin) async {
         await perform(id: plugin.uuid) {
-            try await self.registry.uninstall(plugin)
+            try await PluginRegistry.shared.uninstall(plugin)
         }
     }
 
@@ -133,13 +131,9 @@ struct PluginManagerView: View {
                 PluginSettingsView(plugin: plugin)
             } label: {
                 HStack(spacing: 12) {
-                    AsyncImage(url: plugin.iconURL.flatMap(URL.init(string:))) { image in
-                        image.resizable().aspectRatio(contentMode: .fill)
-                    } placeholder: {
-                        Image(systemName: "puzzlepiece.extension").foregroundStyle(.secondary)
-                    }
-                    .frame(width: 36, height: 36)
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    PluginIconImage(url: plugin.iconURL)
+                        .frame(width: 36, height: 36)
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text(plugin.name)

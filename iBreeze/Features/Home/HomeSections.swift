@@ -37,15 +37,9 @@ struct PluginRowSection: View {
 
     private func tile(for plugin: InstalledPlugin) -> some View {
         VStack(spacing: 6) {
-            AsyncImage(url: plugin.iconURL.flatMap(URL.init(string:))) { image in
-                image.resizable().aspectRatio(contentMode: .fill)
-            } placeholder: {
-                Image(systemName: "puzzlepiece.extension")
-                    .font(.title3)
-                    .foregroundStyle(.secondary)
-            }
-            .frame(width: tileSize, height: tileSize)
-            .glassSurface(in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            PluginIconImage(url: plugin.iconURL)
+                .frame(width: tileSize, height: tileSize)
+                .glassSurface(in: RoundedRectangle(cornerRadius: 14, style: .continuous))
 
             Text(plugin.name)
                 .font(.caption2)

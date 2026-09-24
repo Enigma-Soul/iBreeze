@@ -43,40 +43,38 @@ final class PluginSettingsViewModel {
             let source = try await PluginRegistry.shared.source(for: plugin.uuid)
             let bundle = try await source.settingsBundle()
 
-            values = (bundle["data"]?["values"]?.anyValue as? [String: Any])?
-                .reduce(into: [:]) { result, pair in
-                    result[pair.key] = Self.jsonValue(pair.value)
-                } ?? [:]
+            values = bundle["data"]?["values"]?.objectValue ?? [:]
 
-            let scheme = bundle["scheme"]
-            let rawSections = scheme?["sections"]?.arrayValue ?? []
-            sections = rawSections.compactMap { section in
+            sections = (bundle["scheme"]?["sections"]?.arrayValue ?? []).compactMap { section in
                 guard let title = section["title"]?.stringValue else { return nil }
-                let fields = (section["fields"]?.arrayValue ?? []).compactMap { field -> Field? in
-                    guard let key = field["key"]?.stringValue,
-                          let kind = field["kind"]?.stringValue
-                    else { return nil }
-
-                    let options = (field["options"]?.arrayValue ?? []).compactMap { option -> (String, JSONValue)? in
-                        guard let label = option["label"]?.stringValue, let value = option["value"] else { return nil }
-                        return (label, value)
-                    }
-
-                    return Field(
-                        key: key,
-                        kind: kind,
-                        label: field["label"]?.stringValue ?? key,
-                        callbackPath: field["fnPath"]?.stringValue,
-                        persists: field["persist"]?.anyValue as? Bool ?? true,
-                        options: options
-                    )
-                }
-                return Section(title: title, fields: fields)
+                return Section(
+                    title: title,
+                    fields: (section["fields"]?.arrayValue ?? []).compactMap(Self.makeField)
+                )
             }
             errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    /// 把插件声明的一个字段解成 `Field`
+    private static func makeField(_ json: JSONValue) -> Field? {
+        guard let key = json["key"]?.stringValue, let kind = json["kind"]?.stringValue else { return nil }
+
+        let options = (json["options"]?.arrayValue ?? []).compactMap { option -> (label: String, value: JSONValue)? in
+            guard let label = option["label"]?.stringValue, let value = option["value"] else { return nil }
+            return (label, value)
+        }
+
+        return Field(
+            key: key,
+            kind: kind,
+            label: json["label"]?.stringValue ?? key,
+            callbackPath: json["fnPath"]?.stringValue,
+            persists: json["persist"]?.anyValue as? Bool ?? true,
+            options: options
+        )
     }
 
     /// 值变化：先按约定持久化，再回调插件的 fnPath
@@ -94,18 +92,6 @@ final class PluginSettingsViewModel {
             errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
-        }
-    }
-
-    /// 把 `Any` 还原成 JSONValue，便于在 SwiftUI 里传递
-    private static func jsonValue(_ value: Any) -> JSONValue {
-        switch value {
-        case let string as String: .string(string)
-        case let bool as Bool: .bool(bool)
-        case let number as NSNumber: .number(number.doubleValue)
-        case let array as [Any]: .array(array.map(jsonValue))
-        case let object as [String: Any]: .object(object.mapValues(jsonValue))
-        default: .null
         }
     }
 }
