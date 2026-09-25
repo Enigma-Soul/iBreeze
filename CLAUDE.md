@@ -53,7 +53,8 @@ bare `node:vm` context that mimics JavaScriptCore (no web globals):
 ```
 node Tools/plugin-js-harness.mjs                                 # 50 self-checks
 node Tools/plugin-js-harness.mjs <bundle.cjs> <fnPath> '[json]'  # drive a real plugin bundle
-node Tools/generate-app-icon.mjs                                 # regenerate the app icon
+node Tools/plugin-matrix.mjs [--net]                             # check every plugin in the catalogue
+node Tools/prepare-app-icon.mjs <source.png>                     # 1024px icon, alpha stripped
 ```
 
 The harness re-execs itself with `NODE_USE_ENV_PROXY=1` when `HTTP_PROXY` is set (Node's `fetch`

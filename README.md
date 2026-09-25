@@ -51,7 +51,8 @@ git push origin develop      # 触发 CI：单元测试 + 真实插件冒烟 + �
 ```bash
 node Tools/plugin-js-harness.mjs                                  # JS 层自检（53 项）
 node Tools/plugin-js-harness.mjs <bundle.cjs> <fnPath> [payload]  # 直接跑某个插件 bundle
-node Tools/generate-app-icon.mjs                                  # 重新生成 App 图标
+node Tools/prepare-app-icon.mjs <源图>                            # 生成 App 图标（1024、无 alpha）
+node Tools/plugin-matrix.mjs                                      # 批量检查插件可用性
 ```
 
 更多工程细节与踩坑记录见 [CLAUDE.md](CLAUDE.md)。
