@@ -1,5 +1,5 @@
-import Foundation
 import Observation
+import SwiftUI
 
 /// 悬浮标签栏的显隐状态。
 ///
