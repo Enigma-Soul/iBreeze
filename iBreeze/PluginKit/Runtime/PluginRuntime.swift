@@ -38,6 +38,29 @@ final class PluginRuntime: @unchecked Sendable {
 
             self.context = context
         }
+
+        await callInitIfNeeded()
+    }
+
+    /// 装载后按契约调用 `init`。
+    ///
+    /// 插件文档把 `init` 列为可选的初始化入口，哔咔这类插件依赖它建立会话，
+    /// 不调用的话之后的调用会直接报「未初始化」。
+    private func callInitIfNeeded() async {
+        let exposesInit = (try? await run { [self] () -> Bool in
+            guard let context else { return false }
+            let script = "typeof __pluginExports !== 'undefined' && typeof __pluginExports.init === 'function'"
+            return context.evaluateScript(script)?.toBool() ?? false
+        }) ?? false
+
+        guard exposesInit else { return }
+
+        do {
+            _ = try await invoke(fnPath: "init", payloadJSON: "{}")
+        } catch {
+            // 初始化失败不阻断装载：插件可能只在需要登录时才报错
+            logger.error("插件 init 失败：\(error.localizedDescription, privacy: .public)")
+        }
     }
 
     /// 调用插件的某个 `fnPath`，返回结果的 JSON 文本
