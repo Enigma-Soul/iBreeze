@@ -8,6 +8,7 @@ struct SettingsView: View {
     @AppStorage(SettingsKey.proxyPort) private var proxyPort = ""
     @AppStorage(SettingsKey.chineseConversion) private var chineseConversion = ChineseConversion.off.rawValue
     @AppStorage(SettingsKey.readingDirection) private var readingDirection = ReadingDirection.vertical.rawValue
+    @AppStorage(SettingsKey.appearance) private var appearance = AppearanceMode.system.rawValue
 
     @State private var pendingAction: DataAction?
     @State private var resultMessage: String?
@@ -22,6 +23,7 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
+            appearanceSection
             readingSection
             proxySection
             languageSection
@@ -69,6 +71,16 @@ struct SettingsView: View {
             ReadingHistoryStore.shared.clear()
         }
         resultMessage = "已\(action.rawValue)"
+    }
+
+    private var appearanceSection: some View {
+        Section("外观") {
+            Picker("主题", selection: $appearance) {
+                ForEach(AppearanceMode.allCases) { mode in
+                    Text(mode.title).tag(mode.rawValue)
+                }
+            }
+        }
     }
 
     private var readingSection: some View {

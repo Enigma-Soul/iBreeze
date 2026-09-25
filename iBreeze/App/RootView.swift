@@ -7,6 +7,7 @@ import SwiftUI
 struct RootView: View {
     @State private var selection: AppTab = .home
     @State private var tabBar = TabBarVisibility()
+    @AppStorage(SettingsKey.appearance) private var appearance = AppearanceMode.system.rawValue
 
     var body: some View {
         ZStack {
@@ -24,6 +25,7 @@ struct RootView: View {
                 .animation(.snappy(duration: 0.25), value: tabBar.isHidden)
         }
         .onChange(of: selection) { _, _ in tabBar.reset() }
+        .preferredColorScheme(AppearanceMode(rawValue: appearance)?.colorScheme)
     }
 
     @ViewBuilder

@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 /// UserDefaults 键名，避免各处硬编码字符串
 enum SettingsKey {
@@ -8,6 +9,32 @@ enum SettingsKey {
     static let proxyPort = "proxy.port"
     static let chineseConversion = "language.chineseConversion"
     static let readingDirection = "reader.direction"
+    static let appearance = "appearance.mode"
+}
+
+/// 外观模式
+enum AppearanceMode: String, CaseIterable, Identifiable {
+    case system
+    case light
+    case dark
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .system: "跟随系统"
+        case .light: "浅色"
+        case .dark: "深色"
+        }
+    }
+
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .system: nil
+        case .light: .light
+        case .dark: .dark
+        }
+    }
 }
 
 /// 阅读方向
