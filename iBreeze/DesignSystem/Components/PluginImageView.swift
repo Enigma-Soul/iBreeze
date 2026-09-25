@@ -9,6 +9,8 @@ struct PluginImageView: View {
     var pageNumber: Int?
     /// 占位高度：加载完成前先占住位置，避免列表跳动与重叠
     var placeholderHeight: CGFloat?
+    /// 页面带来的透传上下文，可能含真实图址，必须回传给插件
+    var extern: JSONValue?
 
     @Environment(PluginRegistry.self) private var registry
     @State private var image: UIImage?
@@ -71,7 +73,7 @@ struct PluginImageView: View {
             return
         }
 
-        switch await ComicImageLoader.shared.load(pluginUUID: sourceID, url: url, source: source) {
+        switch await ComicImageLoader.shared.load(pluginUUID: sourceID, url: url, extern: extern, source: source) {
         case .success(let loaded):
             image = loaded
         case .failure(let message):

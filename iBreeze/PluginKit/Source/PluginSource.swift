@@ -69,14 +69,23 @@ final class PluginSource: @unchecked Sendable {
         )
     }
 
-    /// 图片下载：插件自己决定怎么拿，宿主只负责调度
-    func imageBytes(url: String, timeoutMs: Int = 30_000, taskGroupKey: String = "") async throws -> Data {
+    /// 图片下载：插件自己决定怎么拿，宿主只负责调度。
+    ///
+    /// `extern` 必须原样回传：e-hentai 这类插件把真实图址放在页面的 extern 里，
+    /// 靠它把占位地址（`/_breeze/read-image`）换成真实地址。
+    func imageBytes(
+        url: String,
+        extern: JSONValue? = nil,
+        timeoutMs: Int = 30_000,
+        taskGroupKey: String = ""
+    ) async throws -> Data {
         try await runtime.invokeData(
             fnPath: "fetchImageBytes",
             payloadJSON: try Self.json([
                 "url": url,
                 "timeoutMs": timeoutMs,
-                "taskGroupKey": taskGroupKey
+                "taskGroupKey": taskGroupKey,
+                "extern": extern?.anyValue ?? [:]
             ])
         )
     }

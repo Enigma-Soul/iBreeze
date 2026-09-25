@@ -34,9 +34,12 @@ actor ComicImageLoader {
         memory.countLimit = 200
     }
 
-    /// 取图：命中缓存直接返回，否则让插件下载
-    func load(pluginUUID: String, url: String, source: PluginSource) async -> Outcome {
-        let key = Self.cacheKey(pluginUUID: pluginUUID, url: url)
+    /// 取图：命中缓存直接返回，否则让插件下载。
+    ///
+    /// `extern` 是页面上带的透传上下文，可能包含真实图址，必须原样回传给插件，
+    /// 因此也要参与缓存键。
+    func load(pluginUUID: String, url: String, extern: JSONValue? = nil, source: PluginSource) async -> Outcome {
+        let key = Self.cacheKey(pluginUUID: pluginUUID, url: url, extern: extern)
 
         if let cached = memory.object(forKey: key as NSString) { return .success(cached) }
         if let task = inFlight[key] { return await task.value }
@@ -44,7 +47,7 @@ actor ComicImageLoader {
         let task = Task<Outcome, Never> { [weak self] in
             guard let self else { return .failure("加载器已释放") }
             if let image = await loadFromDisk(key: key) { return .success(image) }
-            return await download(key: key, url: url, source: source)
+            return await download(key: key, url: url, extern: extern, source: source)
         }
         inFlight[key] = task
 
@@ -65,9 +68,9 @@ actor ComicImageLoader {
     }
 
     /// 预取，用于阅读页提前加载后几页
-    func prefetch(pluginUUID: String, urls: [String], source: PluginSource) {
-        for url in urls {
-            Task { _ = await image(pluginUUID: pluginUUID, url: url, source: source) }
+    func prefetch(pluginUUID: String, pages: [(url: String, extern: JSONValue?)], source: PluginSource) {
+        for page in pages {
+            Task { _ = await load(pluginUUID: pluginUUID, url: page.url, extern: page.extern, source: source) }
         }
     }
 
@@ -82,12 +85,12 @@ actor ComicImageLoader {
 
     // MARK: - 内部实现
 
-    private func download(key: String, url: String, source: PluginSource) async -> Outcome {
+    private func download(key: String, url: String, extern: JSONValue?, source: PluginSource) async -> Outcome {
         await acquireSlot()
         defer { releaseSlot() }
 
         do {
-            let data = try await source.imageBytes(url: url)
+            let data = try await source.imageBytes(url: url, extern: extern)
             guard let image = UIImage(data: data) else {
                 logger.error("图片解码失败：\(url, privacy: .public)")
                 return .failure("图片解码失败")
@@ -128,9 +131,18 @@ actor ComicImageLoader {
         waitingSlots.removeFirst().resume()
     }
 
-    /// 缓存键：插件 uuid + 图片地址的摘要，避免文件名过长或非法
-    private static func cacheKey(pluginUUID: String, url: String) -> String {
-        let digest = PluginCrypto.digest(.sha256, Data("\(pluginUUID)|\(url)".utf8))
-        return PluginCrypto.hex(digest)
+    /// 缓存键：插件 uuid + 图片地址 + 透传上下文的摘要，避免文件名过长或非法
+    private static func cacheKey(pluginUUID: String, url: String, extern: JSONValue?) -> String {
+        var material = "\(pluginUUID)|\(url)"
+        if let extern, let data = try? sortedEncoder.encode(extern) {
+            material += "|" + String(decoding: data, as: UTF8.self)
+        }
+        return PluginCrypto.hex(PluginCrypto.digest(.sha256, Data(material.utf8)))
     }
+
+    private static let sortedEncoder: JSONEncoder = {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return encoder
+    }()
 }

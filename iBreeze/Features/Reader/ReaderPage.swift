@@ -67,9 +67,12 @@ final class ReaderViewModel {
         let end = min(pages.count, index + 4)
         guard start < end else { return }
 
-        let urls = pages[start..<end].compactMap(\.url)
-        guard !urls.isEmpty else { return }
-        Task { await ComicImageLoader.shared.prefetch(pluginUUID: sourceID, urls: urls, source: source) }
+        let targets = pages[start..<end].compactMap { page -> (url: String, extern: JSONValue?)? in
+            guard let url = page.url, !url.isEmpty else { return nil }
+            return (url, page.extern)
+        }
+        guard !targets.isEmpty else { return }
+        Task { await ComicImageLoader.shared.prefetch(pluginUUID: sourceID, pages: targets, source: source) }
     }
 }
 
@@ -174,7 +177,8 @@ struct ReaderPage: View {
                         url: page.url,
                         contentMode: .fit,
                         pageNumber: index + 1,
-                        placeholderHeight: 400
+                        placeholderHeight: 400,
+                        extern: page.extern
                     )
                     .frame(maxWidth: .infinity)
                     .id(page.id)
@@ -193,7 +197,8 @@ struct ReaderPage: View {
                         sourceID: sourceID,
                         url: page.url,
                         contentMode: .fit,
-                        pageNumber: index + 1
+                        pageNumber: index + 1,
+                        extern: page.extern
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .containerRelativeFrame(.horizontal)

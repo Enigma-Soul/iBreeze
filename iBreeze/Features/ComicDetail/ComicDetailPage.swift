@@ -96,7 +96,7 @@ struct ComicDetailPage: View {
 
     private var headerSection: some View {
         HStack(alignment: .top, spacing: 14) {
-            PluginImageView(sourceID: sourceID, url: viewModel.info?.cover?.url)
+            PluginImageView(sourceID: sourceID, url: viewModel.info?.cover?.url, extern: viewModel.info?.cover?.extern)
                 .frame(width: 120, height: 168)
                 .clipShape(RoundedRectangle(cornerRadius: AppTheme.Radius.thumbnail, style: .continuous))
 

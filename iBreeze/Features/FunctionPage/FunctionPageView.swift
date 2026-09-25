@@ -148,7 +148,7 @@ struct FunctionPageView: View {
 
     private func gridCard(_ item: FunctionPage.GridItem) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            PluginImageView(sourceID: sourceID, url: item.cover?.url)
+            PluginImageView(sourceID: sourceID, url: item.cover?.url, extern: item.cover?.extern)
                 .frame(height: 96)
                 .frame(maxWidth: .infinity)
                 .clipShape(RoundedRectangle(cornerRadius: AppTheme.Radius.thumbnail, style: .continuous))

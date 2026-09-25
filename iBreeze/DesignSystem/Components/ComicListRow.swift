@@ -10,7 +10,7 @@ struct ComicListRow: View {
 
     var body: some View {
         ComicRowLayout {
-            PluginImageView(sourceID: sourceID, url: item.cover?.url)
+            PluginImageView(sourceID: sourceID, url: item.cover?.url, extern: item.cover?.extern)
         } details: {
             VStack(alignment: .leading, spacing: 6) {
                 Text(item.title.convertedChinese)
