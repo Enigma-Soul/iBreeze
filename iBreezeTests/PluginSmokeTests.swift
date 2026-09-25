@@ -48,9 +48,10 @@ struct PluginSmokeTests {
         #expect(info.uuid == remote.manifest.uuid)
         #expect(!info.name.isEmpty)
 
-        // 插件的列表入口应能解析成列表场景（body.request.fnPath）
+        // 插件的列表入口应能解析成取数请求（新格式在 body.request，旧格式在 list）
         let scene = try #require(info.function?.first?.action.payload?.scene)
-        #expect(!scene.body.request.fnPath.isEmpty)
+        let request = try #require(scene.request)
+        #expect(!request.fnPath.isEmpty)
 
         // 插件自身的域名白名单会拒绝非图源地址，说明它的 JS 逻辑确实执行了
         await #expect(throws: PluginError.self) {
@@ -87,11 +88,13 @@ struct PluginSmokeTests {
         let scene = try #require(info.function?.first?.action.payload?.scene)
 
         // 1. 列表
+        let request = try #require(scene.request)
+
         let list = try await source.pagedList(
-            fnPath: scene.body.request.fnPath,
+            fnPath: request.fnPath,
             page: 1,
-            core: scene.body.request.core,
-            extern: scene.body.request.extern
+            core: request.core,
+            extern: request.extern
         )
         #expect(!list.resolvedItems.isEmpty, "列表没有返回任何条目")
         let item = try #require(list.resolvedItems.first)
