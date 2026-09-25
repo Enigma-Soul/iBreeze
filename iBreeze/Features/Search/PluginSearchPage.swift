@@ -24,7 +24,7 @@ struct PluginSearchPage: View {
                     sourceID: sourceID,
                     isLoading: viewModel.isLoading,
                     hasReachedMax: viewModel.hasReachedMax,
-                    loadMore: { Task { await viewModel.loadMore(sourceID: sourceID) } }
+                    loadMore: { Task { await viewModel.loadMore() } }
                 )
             }
         }

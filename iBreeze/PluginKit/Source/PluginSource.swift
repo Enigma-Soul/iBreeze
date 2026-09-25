@@ -114,10 +114,6 @@ final class PluginSource: @unchecked Sendable {
         try await invokeJSON(fnPath: "getAdvancedSearchScheme")
     }
 
-    /// 列表筛选器
-    func filterBundle(fnPath: String) async throws -> JSONValue {
-        try await invokeJSON(fnPath: fnPath)
-    }
 
     /// 插件设置页
     func settingsBundle() async throws -> JSONValue {

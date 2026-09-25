@@ -58,22 +58,22 @@ struct FunctionPage: Decodable, Hashable, Sendable {
 
     /// chip-list 的内容
     func chips(for key: String) -> [ChipItem] {
-        decode(key, as: [ChipItem].self)
+        decode(key, as: ChipItem.self)
     }
 
     /// action-grid 的内容
     func actionGrid(for key: String) -> [GridItem] {
-        decode(key, as: [GridItem].self)
+        decode(key, as: GridItem.self)
     }
 
     /// comic-grid 的内容
     func comics(for key: String) -> [ComicListItem] {
-        decode(key, as: [ComicListItem].self)
+        decode(key, as: ComicListItem.self)
     }
 
     /// comic-section-list 的内容
     func sections(for key: String) -> [ComicSection] {
-        decode(key, as: [ComicSection].self)
+        decode(key, as: ComicSection.self)
     }
 
     private func decode<T: Decodable>(_ key: String, as type: T.Type) -> [T] {

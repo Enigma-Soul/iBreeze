@@ -67,8 +67,8 @@ struct FunctionPageView: View {
     }
 
     @ViewBuilder
-    private func node(_ node: FunctionPage.BodyNode, in page: FunctionPage) -> some View {
-        switch node {
+    private func node(_ body: FunctionPage.BodyNode, in page: FunctionPage) -> some View {
+        switch body {
         case .list(let children):
             VStack(alignment: .leading, spacing: 16) {
                 ForEach(Array(children.enumerated()), id: \.offset) { _, child in
