@@ -46,12 +46,18 @@ struct PluginAction: Codable, Hashable, Sendable {
     }
 }
 
-/// 列表场景：宿主据此渲染列表页，并调用 `body.request.fnPath` 取数据
+/// 列表场景：宿主据此渲染列表页，并调用取数函数
+///
+/// 文档里的写法是 `body.request`，但禁漫等插件用的是 `list`，两种都要认。
 struct ComicListScene: Codable, Hashable, Sendable {
     var title: String
     var source: String
-    var body: Body
+    var body: Body?
+    var list: Request?
     var filter: Request?
+
+    /// 取数请求，兼容新旧两种写法
+    var request: Request? { body?.request ?? list }
 
     /// 列表类型 + 取数请求
     struct Body: Codable, Hashable, Sendable {
@@ -63,5 +69,20 @@ struct ComicListScene: Codable, Hashable, Sendable {
         var fnPath: String
         var core: JSONValue?
         var extern: JSONValue?
+
+        /// 把筛选器选中的 `result.core` / `result.extern` 合并进来
+        func merging(core extraCore: JSONValue?, extern extraExtern: JSONValue?) -> Request {
+            Request(
+                fnPath: fnPath,
+                core: Self.merge(core, with: extraCore),
+                extern: Self.merge(extern, with: extraExtern)
+            )
+        }
+
+        private static func merge(_ base: JSONValue?, with extra: JSONValue?) -> JSONValue? {
+            guard case .object(let extras)? = extra else { return base }
+            guard case .object(let originals)? = base else { return extra }
+            return .object(originals.merging(extras) { _, new in new })
+        }
     }
 }

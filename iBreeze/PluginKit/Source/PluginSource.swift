@@ -88,6 +88,27 @@ final class PluginSource: @unchecked Sendable {
         try await invokeJSON(fnPath: "getComicListSceneBundle")
     }
 
+    /// 插件自定义页面（`openPluginFunction` 的落地页）
+    func functionPage(id: String, page: Int? = nil) async throws -> FunctionPage {
+        var payload: [String: Any] = ["id": id]
+        if let page { payload["page"] = page }
+
+        let json = try await runtime.invoke(fnPath: "getFunctionPage", payloadJSON: try Self.json(payload))
+        guard let data = json.data(using: .utf8) else {
+            throw PluginError.invalidPayload("功能页返回值不是合法 UTF-8")
+        }
+        return try JSONDecoder().decode(FunctionPage.self, from: data)
+    }
+
+    /// 列表筛选器
+    func filterBundle(fnPath: String) async throws -> FilterBundle {
+        let json = try await runtime.invoke(fnPath: fnPath)
+        guard let data = json.data(using: .utf8) else {
+            throw PluginError.invalidPayload("筛选器返回值不是合法 UTF-8")
+        }
+        return try JSONDecoder().decode(FilterBundle.self, from: data)
+    }
+
     /// 高级搜索筛选项
     func advancedSearch() async throws -> JSONValue {
         try await invokeJSON(fnPath: "getAdvancedSearchScheme")

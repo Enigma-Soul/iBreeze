@@ -50,6 +50,11 @@ final class PluginRegistry {
         sources[uuid]
     }
 
+    /// 按 uuid 找已安装插件
+    func plugin(uuid: String) -> InstalledPlugin? {
+        installed.first { $0.uuid == uuid }
+    }
+
     /// 释放运行时（卸载或更新前调用）
     func close(uuid: String) async {
         await sources[uuid]?.shutdown()

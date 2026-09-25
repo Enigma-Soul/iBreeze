@@ -1,9 +1,9 @@
 import SwiftUI
 
-/// 首页：顶部切换插件源与入口，下面是该源的列表。
+/// 首页：顶部切换插件源与入口，下面是该入口的内容。
 ///
 /// 与 EhViewer 一样，首页/搜索/收藏共用同一套列表容器，首页只负责选数据源：
-/// 源 = 已安装插件，入口 = 插件声明的「最新 / 热门 / 排行」等。
+/// 源 = 已安装插件，入口 = 插件声明的「最新 / 热门 / 排行 / 导航」等。
 struct HomeView: View {
     @Environment(PluginRegistry.self) private var registry
     @State private var viewModel = HomeViewModel()
@@ -17,16 +17,7 @@ struct HomeView: View {
             .navigationTitle(AppTab.home.title)
             .navigationBarTitleDisplayMode(.inline)
             .appNavigationDestinations()
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    NavigationLink {
-                        SettingsView()
-                    } label: {
-                        Image(systemName: "gearshape")
-                    }
-                    .accessibilityLabel("设置")
-                }
-            }
+            .toolbar { toolbarContent }
         }
         .task { await viewModel.reload() }
         .onChange(of: registry.installed.map(\.uuid)) { _, _ in
@@ -72,7 +63,7 @@ struct HomeView: View {
     private var searchField: some View {
         if let source = viewModel.selectedSource {
             NavigationLink {
-                PluginSearchPage(plugin: source)
+                PluginSearchPage(sourceID: source.uuid, sourceName: source.name, initialKeyword: "")
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: "magnifyingglass")
@@ -91,7 +82,28 @@ struct HomeView: View {
         }
     }
 
-    // MARK: - 列表
+    /// 当前列表带筛选器时（排行榜之类）才显示筛选入口
+    private var activeFilterList: ComicListViewModel? {
+        guard case .list(let list) = viewModel.content, list.hasFilter else { return nil }
+        return list
+    }
+
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        if let list = activeFilterList {
+            ToolbarItem(placement: .topBarTrailing) {
+                FilterMenu(
+                    title: list.filterTitle,
+                    options: list.filterOptions,
+                    activeLabel: list.activeFilterLabel
+                ) { option in
+                    Task { await list.apply(option: option) }
+                }
+            }
+        }
+    }
+
+    // MARK: - 内容
 
     @ViewBuilder
     private var content: some View {
@@ -101,25 +113,46 @@ struct HomeView: View {
                 systemImage: "puzzlepiece.extension",
                 description: Text("去「设置 → 插件管理」安装后即可浏览")
             )
-        } else if let list = viewModel.list, let sourceID = viewModel.selectedSourceID {
-            ComicResultList(
-                items: list.items,
-                sourceID: sourceID,
-                isLoading: list.isLoading,
-                hasReachedMax: list.hasReachedMax,
-                loadMore: { Task { await list.loadMore() } },
-                header: { ContinueReadingStrip() }
-            )
-        } else if viewModel.selectedSourceNeedsSearch, let source = viewModel.selectedSource {
+        } else if let source = viewModel.selectedSource, viewModel.selectedSourceNeedsSearch {
             ContentUnavailableView {
                 Label("只能搜索", systemImage: "magnifyingglass")
             } description: {
                 Text("\(source.name) 没有提供浏览入口")
             } actions: {
-                NavigationLink("搜索该插件") { PluginSearchPage(plugin: source) }
-                    .buttonStyle(.borderedProminent)
+                NavigationLink("搜索该插件") {
+                    PluginSearchPage(sourceID: source.uuid, sourceName: source.name, initialKeyword: "")
+                }
+                .buttonStyle(.borderedProminent)
             }
         } else {
+            entryContent
+        }
+    }
+
+    @ViewBuilder
+    private var entryContent: some View {
+        switch viewModel.content {
+        case .list(let list):
+            ComicResultList(
+                items: list.items,
+                sourceID: viewModel.selectedSourceID ?? "",
+                isLoading: list.isLoading,
+                hasReachedMax: list.hasReachedMax,
+                loadMore: { Task { await list.loadMore() } },
+                header: { ContinueReadingStrip() }
+            )
+
+        case .route(let title, let route):
+            VStack(spacing: 12) {
+                NavigationLink(title, value: route)
+                    .buttonStyle(.borderedProminent)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+        case .unsupported(let reason):
+            ContentUnavailableView("暂不支持", systemImage: "questionmark.circle", description: Text(reason))
+
+        case nil:
             ProgressView()
         }
     }

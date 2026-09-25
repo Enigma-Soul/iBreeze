@@ -87,7 +87,6 @@ struct ComicDetailPage: View {
         }
         .navigationTitle(viewModel.info?.title ?? "详情")
         .navigationBarTitleDisplayMode(.inline)
-        .appNavigationDestinations()
         .task { if viewModel.detail == nil { await viewModel.load() } }
         .overlay { loadingOverlay }
     }
