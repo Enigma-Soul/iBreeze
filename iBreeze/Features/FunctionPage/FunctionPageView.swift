@@ -66,34 +66,34 @@ struct FunctionPageView: View {
         }
     }
 
-    @ViewBuilder
-    private func node(_ body: FunctionPage.BodyNode, in page: FunctionPage) -> some View {
+    /// 递归渲染：返回值可能是任意组合，用 AnyView 才能自引用
+    private func node(_ body: FunctionPage.BodyNode, in page: FunctionPage) -> AnyView {
         switch body {
         case .list(let children):
-            VStack(alignment: .leading, spacing: 16) {
+            return AnyView(VStack(alignment: .leading, spacing: 16) {
                 ForEach(Array(children.enumerated()), id: \.offset) { _, child in
                     node(child, in: page)
                 }
-            }
+            })
 
         case .chipList(let key):
-            chipList(page.chips(for: key))
+            return AnyView(chipList(page.chips(for: key)))
 
         case .actionGrid(let key):
-            actionGrid(page.actionGrid(for: key))
+            return AnyView(actionGrid(page.actionGrid(for: key)))
 
-        case .comicGrid(let key, let title):
-            comicGrid(title: title, items: page.comics(for: key))
+        case .comicGrid(let key, let sectionTitle):
+            return AnyView(comicGrid(title: sectionTitle, items: page.comics(for: key)))
 
         case .comicSectionList(let key):
-            VStack(alignment: .leading, spacing: 16) {
+            return AnyView(VStack(alignment: .leading, spacing: 16) {
                 ForEach(Array(page.sections(for: key).enumerated()), id: \.offset) { _, section in
                     comicGrid(title: section.title, items: section.items ?? [])
                 }
-            }
+            })
 
         case .unknown:
-            EmptyView()
+            return AnyView(EmptyView())
         }
     }
 
