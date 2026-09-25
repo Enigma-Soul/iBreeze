@@ -9,11 +9,9 @@ struct ComicListRow: View {
     let sourceID: String
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
+        ComicRowLayout {
             PluginImageView(sourceID: sourceID, url: item.cover?.url)
-                .frame(width: AppTheme.Size.listThumbnail.width, height: AppTheme.Size.listThumbnail.height)
-                .clipShape(RoundedRectangle(cornerRadius: AppTheme.Radius.thumbnail, style: .continuous))
-
+        } details: {
             VStack(alignment: .leading, spacing: 6) {
                 Text(item.title.convertedChinese)
                     .font(.subheadline.weight(.medium))
@@ -31,12 +29,7 @@ struct ComicListRow: View {
 
                 metadata
             }
-
-            Spacer(minLength: 0)
         }
-        .frame(height: AppTheme.Size.listThumbnail.height)
-        .padding(.vertical, 6)
-        .contentShape(Rectangle())
     }
 
     private var metadata: some View {

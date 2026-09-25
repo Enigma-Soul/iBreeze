@@ -28,8 +28,10 @@ struct HomeView: View {
                 }
             }
         }
-        .task { viewModel.reload() }
-        .onChange(of: registry.installed.map(\.uuid)) { _, _ in viewModel.reload() }
+        .task { await viewModel.reload() }
+        .onChange(of: registry.installed.map(\.uuid)) { _, _ in
+            Task { await viewModel.reload() }
+        }
     }
 
     // MARK: - 顶部

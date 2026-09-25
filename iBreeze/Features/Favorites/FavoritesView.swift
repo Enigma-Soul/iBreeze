@@ -45,11 +45,9 @@ struct FavoritesView: View {
     }
 
     private func row(for entry: FavoriteEntry) -> some View {
-        HStack(alignment: .top, spacing: 12) {
+        ComicRowLayout {
             PluginImageView(sourceID: entry.source, url: entry.coverURL)
-                .frame(width: AppTheme.Size.listThumbnail.width, height: AppTheme.Size.listThumbnail.height)
-                .clipShape(RoundedRectangle(cornerRadius: AppTheme.Radius.thumbnail, style: .continuous))
-
+        } details: {
             VStack(alignment: .leading, spacing: 6) {
                 Text(entry.title.convertedChinese)
                     .font(.subheadline.weight(.medium))
@@ -62,11 +60,6 @@ struct FavoritesView: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
-
-            Spacer(minLength: 0)
         }
-        .frame(height: AppTheme.Size.listThumbnail.height)
-        .padding(.vertical, 6)
-        .contentShape(Rectangle())
     }
 }

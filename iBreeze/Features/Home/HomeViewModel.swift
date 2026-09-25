@@ -26,15 +26,15 @@ final class HomeViewModel {
         sources.first { $0.uuid == selectedSourceID }
     }
 
-    func reload() {
+    func reload() async {
         sources = registry.installed
 
-        // 选中的源被卸载时回退到第一个
+        // 选中的源还在就保持不变，被卸载才回退到第一个
         if let selectedSourceID, sources.contains(where: { $0.uuid == selectedSourceID }) {
             return
         }
         selectedSourceID = sources.first?.uuid
-        Task { await loadEntries() }
+        await loadEntries()
     }
 
     func select(sourceID: String) async {

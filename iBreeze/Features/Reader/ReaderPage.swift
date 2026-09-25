@@ -73,6 +73,16 @@ final class ReaderViewModel {
     }
 }
 
+/// 阅读器工具条的玻璃底：底色恒为黑，因此固定深色，不跟随明暗模式
+private extension View {
+    func readerGlass<S: Shape>(in shape: S) -> some View {
+        self
+            .background(.ultraThinMaterial, in: shape)
+            .background(Color.black.opacity(0.5), in: shape)
+            .environment(\.colorScheme, .dark)
+    }
+}
+
 /// 阅读页：三段点击区 + 玻璃工具栏 + 页码网格跳转。
 ///
 /// 点击区域按 EhViewer 的做法划分：左右各 30% 翻页、中间 40% 切换工具栏，
@@ -259,10 +269,7 @@ struct ReaderPage: View {
         .foregroundStyle(.white)
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .background(Color.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-        // 阅读器底色恒为黑，工具栏不跟随明暗模式，否则浅色模式下会刺眼
-        .environment(\.colorScheme, .dark)
+        .readerGlass(in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         .padding(.horizontal, 12)
         .padding(.bottom, 8)
     }
@@ -302,10 +309,8 @@ struct ReaderPage: View {
         HStack(spacing: 10) { content() }
             .padding(.horizontal, 14)
             .frame(height: 38)
-            .background(.ultraThinMaterial, in: Capsule())
-            .background(Color.black.opacity(0.45), in: Capsule())
             .foregroundStyle(.white)
-            .environment(\.colorScheme, .dark)
+            .readerGlass(in: Capsule())
     }
 
     // MARK: - 交互

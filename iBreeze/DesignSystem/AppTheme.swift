@@ -7,8 +7,6 @@ enum AppTheme {
     enum Spacing {
         /// 页面左右边距
         static let page: CGFloat = 16
-        /// 区块之间的纵向间距
-        static let section: CGFloat = 24
         /// 网格与横滑列表的间距
         static let grid: CGFloat = 12
     }
