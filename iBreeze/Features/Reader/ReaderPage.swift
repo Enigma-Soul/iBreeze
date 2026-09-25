@@ -59,12 +59,12 @@ final class ReaderViewModel {
         await load()
     }
 
-    /// 预取当前位置往后三页，减少翻页时的白屏
+    /// 预取当前位置往后六页，减少翻页时的白屏
     func prefetch(around index: Int) {
         guard let source = try? PluginRegistry.shared.cachedSource(for: sourceID) else { return }
 
         let start = max(0, index)
-        let end = min(pages.count, index + 4)
+        let end = min(pages.count, index + 7)
         guard start < end else { return }
 
         let targets = pages[start..<end].compactMap { page -> (url: String, extern: JSONValue?)? in

@@ -10,6 +10,26 @@ enum SettingsKey {
     static let chineseConversion = "language.chineseConversion"
     static let readingDirection = "reader.direction"
     static let appearance = "appearance.mode"
+    static let imageConcurrency = "image.concurrency"
+    static let imageTimeoutSeconds = "image.timeout"
+}
+
+/// 图片下载相关设置的读取与默认值
+enum ImageSettings {
+    static let defaultConcurrency = 6
+    static let defaultTimeoutSeconds = 30
+
+    /// 同时下载的图片数
+    static var concurrency: Int {
+        let value = UserDefaults.standard.integer(forKey: SettingsKey.imageConcurrency)
+        return value > 0 ? min(value, 10) : defaultConcurrency
+    }
+
+    /// 单张图片的超时时间（秒）
+    static var timeoutSeconds: Int {
+        let value = UserDefaults.standard.integer(forKey: SettingsKey.imageTimeoutSeconds)
+        return value > 0 ? min(value, 300) : defaultTimeoutSeconds
+    }
 }
 
 /// 外观模式

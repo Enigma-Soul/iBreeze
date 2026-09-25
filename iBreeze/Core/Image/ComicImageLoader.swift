@@ -13,8 +13,8 @@ actor ComicImageLoader {
         case failure(String)
     }
 
-    /// 同时下载的上限：图源不通时并发太多会把整页拖住
-    private static let maxConcurrent = 4
+    /// 内存缓存按字节计费，长条漫画也不至于把内存吃满
+    private static let memoryCostLimit = 200 * 1024 * 1024
 
     private let logger = Logger(subsystem: "com.enigma-soul.ibreeze", category: "ComicImage")
     private let memory = NSCache<NSString, UIImage>()
@@ -31,7 +31,8 @@ actor ComicImageLoader {
             .appendingPathComponent("ComicImages", isDirectory: true)
         self.directory = base
         try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
-        memory.countLimit = 200
+        memory.countLimit = 400
+        memory.totalCostLimit = Self.memoryCostLimit
     }
 
     /// 取图：命中缓存直接返回，否则让插件下载。
@@ -54,7 +55,7 @@ actor ComicImageLoader {
         let outcome = await task.value
         inFlight[key] = nil
         if case .success(let image) = outcome {
-            memory.setObject(image, forKey: key as NSString)
+            memory.setObject(image, forKey: key as NSString, cost: image.memoryCost)
         }
         return outcome
     }
@@ -89,24 +90,54 @@ actor ComicImageLoader {
         await acquireSlot()
         defer { releaseSlot() }
 
-        do {
-            let data = try await source.imageBytes(url: url, extern: extern)
-            guard let image = UIImage(data: data) else {
-                logger.error("图片解码失败：\(url, privacy: .public)")
-                return .failure("图片解码失败")
+        let timeout = ImageSettings.timeoutSeconds
+        var lastError = "图片下载失败"
+
+        // 超时或网络抖动时重试一次，图源慢的时候很有用
+        for attempt in 0..<2 {
+            do {
+                let data = try await withTimeout(seconds: timeout) {
+                    try await source.imageBytes(url: url, extern: extern, timeoutMs: timeout * 1000)
+                }
+                guard let image = UIImage(data: data) else {
+                    logger.error("图片解码失败：\(url, privacy: .public)")
+                    return .failure("图片解码失败")
+                }
+                try? data.write(to: fileURL(for: key), options: .atomic)
+                return .success(image)
+            } catch {
+                lastError = error.localizedDescription
+                logger.error("图片下载失败（第 \(attempt + 1) 次）：\(lastError, privacy: .public)")
             }
-            try? data.write(to: fileURL(for: key), options: .atomic)
-            return .success(image)
-        } catch {
-            logger.error("图片下载失败：\(error.localizedDescription, privacy: .public)")
-            return .failure(error.localizedDescription)
+        }
+
+        return .failure(lastError)
+    }
+
+    /// 宿主侧兜底超时：插件自己也有 timeoutMs，但卡在 JS 里时得由这里掐断
+    private func withTimeout<T: Sendable>(
+        seconds: Int,
+        operation: @escaping @Sendable () async throws -> T
+    ) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask { try await operation() }
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(seconds) * 1_000_000_000)
+                throw PluginError.pluginThrew("图片下载超时（\(seconds) 秒）")
+            }
+
+            defer { group.cancelAll() }
+            guard let value = try await group.next() else {
+                throw PluginError.pluginThrew("图片下载失败")
+            }
+            return value
         }
     }
 
     private func loadFromDisk(key: String) async -> UIImage? {
         let url = fileURL(for: key)
         guard let data = try? Data(contentsOf: url), let image = UIImage(data: data) else { return nil }
-        memory.setObject(image, forKey: key as NSString)
+        memory.setObject(image, forKey: key as NSString, cost: image.memoryCost)
         return image
     }
 
@@ -116,7 +147,7 @@ actor ComicImageLoader {
 
     /// 下载并发闸门：拿不到槽位就排队，槽位直接转交给下一个等待者
     private func acquireSlot() async {
-        if activeDownloads < Self.maxConcurrent {
+        if activeDownloads < ImageSettings.concurrency {
             activeDownloads += 1
             return
         }
@@ -145,4 +176,12 @@ actor ComicImageLoader {
         encoder.outputFormatting = [.sortedKeys]
         return encoder
     }()
+}
+
+private extension UIImage {
+    /// 粗略估算解码后的内存占用，用于内存缓存计费
+    var memoryCost: Int {
+        guard let cgImage else { return 0 }
+        return cgImage.bytesPerRow * cgImage.height
+    }
 }

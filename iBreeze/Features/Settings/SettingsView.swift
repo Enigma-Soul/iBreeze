@@ -9,6 +9,8 @@ struct SettingsView: View {
     @AppStorage(SettingsKey.chineseConversion) private var chineseConversion = ChineseConversion.off.rawValue
     @AppStorage(SettingsKey.readingDirection) private var readingDirection = ReadingDirection.vertical.rawValue
     @AppStorage(SettingsKey.appearance) private var appearance = AppearanceMode.system.rawValue
+    @AppStorage(SettingsKey.imageConcurrency) private var imageConcurrency = ImageSettings.defaultConcurrency
+    @AppStorage(SettingsKey.imageTimeoutSeconds) private var imageTimeout = ImageSettings.defaultTimeoutSeconds
 
     @State private var pendingAction: DataAction?
     @State private var resultMessage: String?
@@ -35,6 +37,7 @@ struct SettingsView: View {
             pluginSection
             appearanceSection
             readingSection
+            imageSection
             proxySection
             languageSection
             dataSection
@@ -110,6 +113,22 @@ struct SettingsView: View {
             Text("阅读")
         } footer: {
             Text("纵向连续适合长条漫画；左右翻页适合单页作品。")
+        }
+    }
+
+    private var imageSection: some View {
+        Section {
+            Stepper(value: $imageConcurrency, in: 1...10) {
+                LabeledContent("并发下载数", value: "\(imageConcurrency)")
+            }
+
+            Stepper(value: $imageTimeout, in: 5...120, step: 5) {
+                LabeledContent("单张超时", value: "\(imageTimeout) 秒")
+            }
+        } header: {
+            Text("图片")
+        } footer: {
+            Text("并发数越高加载越快，但图源限速时反而更容易超时；超时或失败会自动重试一次。")
         }
     }
 
