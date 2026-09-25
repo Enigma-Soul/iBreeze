@@ -3,8 +3,19 @@ name: Build iOS
 on:
   push:
     branches: [develop, main]
+    # 文档与本地工具不影响编译，不必占用 macOS 额度
+    paths-ignore:
+      - "**.md"
+      - "Tools/**"
+      - ".gitattributes"
+      - ".gitignore"
   pull_request:
     branches: [develop, main]
+    paths-ignore:
+      - "**.md"
+      - "Tools/**"
+      - ".gitattributes"
+      - ".gitignore"
   workflow_dispatch:
 
 concurrency:
