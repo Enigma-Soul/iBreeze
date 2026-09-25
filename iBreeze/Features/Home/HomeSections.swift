@@ -59,22 +59,27 @@ struct PluginEntriesSheet: View {
     var body: some View {
         NavigationStack(path: $path) {
             List {
-                if plugin.functions.isEmpty {
-                    ContentUnavailableView(
-                        "该插件没有提供入口",
-                        systemImage: "questionmark.circle",
-                        description: Text("可以在搜索页直接搜索它的内容")
-                    )
-                } else {
-                    ForEach(plugin.functions) { item in
-                        if let route = route(for: item) {
-                            NavigationLink(value: route) {
-                                Label(item.title, systemImage: icon(for: item.action.type))
-                            }
-                        } else {
+                ForEach(plugin.functions) { item in
+                    if let route = route(for: item) {
+                        NavigationLink(value: route) {
                             Label(item.title, systemImage: icon(for: item.action.type))
-                                .foregroundStyle(.secondary)
                         }
+                    } else {
+                        Label(item.title, systemImage: icon(for: item.action.type))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                // 不少插件不声明浏览入口，只能靠关键词搜索，这里给一个统一入口
+                Section {
+                    NavigationLink {
+                        PluginSearchPage(plugin: plugin)
+                    } label: {
+                        Label("搜索该插件", systemImage: "magnifyingglass")
+                    }
+                } footer: {
+                    if plugin.functions.isEmpty {
+                        Text("该插件没有提供浏览入口，只能按关键词搜索它的内容。")
                     }
                 }
             }

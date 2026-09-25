@@ -5,10 +5,6 @@ struct SearchView: View {
     @Environment(PluginRegistry.self) private var registry
     @State private var viewModel = SearchViewModel()
 
-    private let columns = [
-        GridItem(.adaptive(minimum: 110, maximum: 180), spacing: AppTheme.Spacing.grid)
-    ]
-
     var body: some View {
         NavigationStack {
             content
@@ -40,25 +36,13 @@ struct SearchView: View {
     }
 
     private var results: some View {
-        ScrollView {
-            LazyVGrid(columns: columns, spacing: AppTheme.Spacing.grid) {
-                ForEach(viewModel.items) { item in
-                    NavigationLink(value: AppRoute.comicDetail(sourceID: currentSourceID, comicID: item.id)) {
-                        ComicCoverCard(item: item, sourceID: currentSourceID)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.horizontal, AppTheme.Spacing.page)
-
-            if viewModel.isLoading {
-                ProgressView().padding(.vertical, 20)
-            } else if !viewModel.hasReachedMax {
-                ProgressView()
-                    .padding(.vertical, 20)
-                    .onAppear { Task { await viewModel.loadMore(sourceID: currentSourceID) } }
-            }
-        }
+        ComicResultGrid(
+            items: viewModel.items,
+            sourceID: currentSourceID,
+            isLoading: viewModel.isLoading,
+            hasReachedMax: viewModel.hasReachedMax,
+            loadMore: { Task { await viewModel.loadMore(sourceID: currentSourceID) } }
+        )
     }
 
     private var currentSourceID: String {
