@@ -46,13 +46,24 @@
   }
 
   // 宿主调用：载入 CommonJS bundle（插件为单文件产物，不支持运行时 require）
+  //
+  // 插件源码写的是 `export default { ... }`，Rspack 打包成 CJS 后会挂在
+  // `module.exports.default` 上（并带 __esModule），因此这里要把默认导出取出来，
+  // 否则按 fnPath 找函数时会得到「插件未实现 xxx」。
   globalThis.__loadBundle = function (code) {
     var module = { exports: {} };
     var wrapper = new Function("module", "exports", "require", code);
     wrapper(module, module.exports, function (name) {
       throw new Error("插件为单文件 bundle，不支持运行时依赖: " + name);
     });
-    pluginExports = module.exports || {};
+
+    var exported = module.exports || {};
+    if (exported.default && typeof exported.default === "object") {
+      exported = exported.default;
+    }
+    pluginExports = exported;
+    // 调试用：宿主侧可以直接看到插件导出了哪些 fnPath
+    globalThis.__pluginExports = exported;
   };
 
   // 宿主调用：执行某个 fnPath，结果通过 __nativeInvokeResolve 异步回传
