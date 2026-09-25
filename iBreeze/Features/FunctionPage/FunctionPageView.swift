@@ -9,12 +9,15 @@ final class FunctionPageViewModel {
     private(set) var isLoading = false
     private(set) var errorMessage: String?
 
-    private let sourceID: String
+    let sourceID: String
+    /// 插件入口上的标题，内嵌渲染时用作小节标题
+    let title: String
     private let pageID: String
 
-    init(sourceID: String, pageID: String) {
+    init(sourceID: String, pageID: String, title: String = "") {
         self.sourceID = sourceID
         self.pageID = pageID
+        self.title = title
     }
 
     func load() async {
@@ -32,38 +35,20 @@ final class FunctionPageViewModel {
     }
 }
 
-/// 插件自定义页面：按 `scheme.body` 的结构渲染 `data` 里的内容
-struct FunctionPageView: View {
+/// 插件自定义页面的内容。
+///
+/// 拆成独立视图是为了让首页能直接内嵌渲染（禁漫的「推荐」这类入口），
+/// 而不是先跳一个空页再加载。
+struct FunctionPageContent: View {
     let sourceID: String
-    let pageID: String
-    let title: String
+    let page: FunctionPage
 
-    @State private var viewModel: FunctionPageViewModel
     @Environment(PluginRegistry.self) private var registry
 
-    init(sourceID: String, pageID: String, title: String) {
-        self.sourceID = sourceID
-        self.pageID = pageID
-        self.title = title
-        _viewModel = State(initialValue: FunctionPageViewModel(sourceID: sourceID, pageID: pageID))
-    }
-
     var body: some View {
-        ScrollView {
-            content
-                .padding(.vertical, 12)
-        }
-        .navigationTitle(viewModel.page?.scheme?.title ?? title)
-        .hidesFloatingTabBar()
-        .navigationBarTitleDisplayMode(.inline)
-        .task { await viewModel.load() }
-        .overlay { stateOverlay }
-    }
-
-    @ViewBuilder
-    private var content: some View {
-        if let page = viewModel.page, let body = page.scheme?.body {
+        if let body = page.scheme?.body {
             node(body, in: page)
+                .padding(.vertical, 12)
         }
     }
 
@@ -189,14 +174,40 @@ struct FunctionPageView: View {
         let name = registry.plugin(uuid: sourceID)?.name ?? ""
         return PluginActionRouter.route(for: action, sourceID: sourceID, sourceName: name)
     }
+}
 
-    @ViewBuilder
-    private var stateOverlay: some View {
-        if viewModel.page == nil {
-            if let message = viewModel.errorMessage {
-                ContentUnavailableView("无法打开页面", systemImage: "exclamationmark.triangle", description: Text(message))
-            } else {
-                ProgressView()
+/// 插件自定义页面（推入式，独立成页时用）
+struct FunctionPageView: View {
+    let sourceID: String
+    let pageID: String
+    let title: String
+
+    @State private var viewModel: FunctionPageViewModel
+
+    init(sourceID: String, pageID: String, title: String) {
+        self.sourceID = sourceID
+        self.pageID = pageID
+        self.title = title
+        _viewModel = State(initialValue: FunctionPageViewModel(sourceID: sourceID, pageID: pageID))
+    }
+
+    var body: some View {
+        ScrollView {
+            if let page = viewModel.page {
+                FunctionPageContent(sourceID: sourceID, page: page)
+            }
+        }
+        .navigationTitle(viewModel.page?.scheme?.title ?? title)
+        .navigationBarTitleDisplayMode(.inline)
+        .hidesFloatingTabBar()
+        .task { await viewModel.load() }
+        .overlay {
+            if viewModel.page == nil {
+                if let message = viewModel.errorMessage {
+                    ContentUnavailableView("无法打开页面", systemImage: "exclamationmark.triangle", description: Text(message))
+                } else {
+                    ProgressView()
+                }
             }
         }
     }

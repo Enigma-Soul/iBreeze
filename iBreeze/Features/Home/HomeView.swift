@@ -152,6 +152,30 @@ struct HomeView: View {
                 }
             }
 
+        case .page(let page):
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(page.title)
+                        .font(.subheadline.weight(.semibold))
+                        .padding(.horizontal, AppTheme.Spacing.page)
+                        .padding(.top, 12)
+
+                    if let loaded = page.page {
+                        FunctionPageContent(sourceID: page.sourceID, page: loaded)
+                    } else if let message = page.errorMessage {
+                        ContentUnavailableView(
+                            "加载失败",
+                            systemImage: "exclamationmark.triangle",
+                            description: Text(message)
+                        )
+                        .padding(.top, 40)
+                    } else {
+                        ProgressView().padding(.top, 40).frame(maxWidth: .infinity)
+                    }
+                }
+            }
+            .tracksTabBarVisibility()
+
         case .route(let title, let route):
             VStack(spacing: 12) {
                 NavigationLink(title, value: route)

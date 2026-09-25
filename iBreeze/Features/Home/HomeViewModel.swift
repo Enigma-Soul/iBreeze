@@ -11,7 +11,9 @@ final class HomeViewModel {
     /// 当前入口对应的内容形态
     enum Content {
         case list(ComicListViewModel)
-        /// 需要跳转的入口（插件自定义页面等）
+        /// 插件自定义页面：直接在首页渲染，不做跳转
+        case page(FunctionPageViewModel)
+        /// 仍需要跳转的入口（如跳去搜索）
         case route(title: String, route: AppRoute)
         case unsupported(String)
     }
@@ -105,12 +107,13 @@ final class HomeViewModel {
             await list.loadMore()
 
         case "openPluginFunction":
-            let name = selectedSource?.name ?? ""
-            if let route = PluginActionRouter.route(for: entry.action, sourceID: sourceID, sourceName: name) {
-                content = .route(title: entry.title, route: route)
-            } else {
-                content = .unsupported("无法打开「\(entry.title)」")
+            guard let pageID = entry.action.payload?.id, !pageID.isEmpty else {
+                content = .unsupported("「\(entry.title)」缺少页面标识")
+                return
             }
+            let page = FunctionPageViewModel(sourceID: sourceID, pageID: pageID, title: entry.title)
+            content = .page(page)
+            await page.load()
 
         case "openCloudFavorite":
             content = .unsupported("云端收藏暂未支持，收藏请用详情页的心形按钮")
