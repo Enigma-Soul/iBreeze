@@ -7,6 +7,8 @@
 Breeze 生态里现成的插件不用改一行代码就能装进来用。
 
 [![Build](https://github.com/ryongcai/iBreeze/actions/workflows/build.yml/badge.svg?branch=develop)](https://github.com/ryongcai/iBreeze/actions/workflows/build.yml)
+[![Platform](https://img.shields.io/badge/platform-iOS%2018%2B-blue.svg)](#快速开始)
+[![License](https://img.shields.io/badge/license-MPL--2.0-blue.svg)](LICENSE)
 
 ## 特性
 
