@@ -7,6 +7,15 @@ struct ImageItem: Codable, Hashable, Sendable {
     var name: String?
     var path: String?
     var extern: JSONValue?
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = container.lenientString(forKey: .id)
+        url = container.lenientString(forKey: .url)
+        name = container.lenientString(forKey: .name)
+        path = container.lenientString(forKey: .path)
+        extern = container.lenientObject(JSONValue.self, forKey: .extern)
+    }
 }
 
 /// 分页信息
@@ -15,6 +24,14 @@ struct PagingInfo: Codable, Hashable, Sendable {
     var pages: Int?
     var total: Int?
     var hasReachedMax: Bool?
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        page = container.lenientInt(forKey: .page)
+        pages = container.lenientInt(forKey: .pages)
+        total = container.lenientInt(forKey: .total)
+        hasReachedMax = container.lenientBool(forKey: .hasReachedMax)
+    }
 }
 
 /// 详情页可点击的元信息
@@ -45,6 +62,30 @@ struct ComicListItem: Codable, Hashable, Identifiable, Sendable {
     var metadata: [MetadataListItem]?
     var raw: JSONValue?
     var extern: JSONValue?
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        guard let id = container.lenientString(forKey: .id) else {
+            throw DecodingError.dataCorruptedError(forKey: .id, in: container, debugDescription: "列表条目缺少 id")
+        }
+        guard let title = container.lenientString(forKey: .title) else {
+            throw DecodingError.dataCorruptedError(forKey: .title, in: container, debugDescription: "列表条目缺少标题")
+        }
+
+        self.id = id
+        self.title = title
+        source = container.lenientString(forKey: .source)
+        subtitle = container.lenientString(forKey: .subtitle)
+        finished = container.lenientBool(forKey: .finished)
+        likesCount = container.lenientInt(forKey: .likesCount)
+        viewsCount = container.lenientInt(forKey: .viewsCount)
+        updatedAt = container.lenientString(forKey: .updatedAt)
+        cover = container.lenientObject(ImageItem.self, forKey: .cover)
+        metadata = container.lenientObject([MetadataListItem].self, forKey: .metadata)
+        raw = container.lenientObject(JSONValue.self, forKey: .raw)
+        extern = container.lenientObject(JSONValue.self, forKey: .extern)
+    }
 }
 
 /// 搜索 / 列表结果：顶层与 data 内都可能有 items，取到哪个用哪个
@@ -79,6 +120,20 @@ struct ChapterSummary: Codable, Hashable, Identifiable, Sendable {
     var order: Int?
     var extern: JSONValue?
 
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        guard let id = container.lenientString(forKey: .id) else {
+            throw DecodingError.dataCorruptedError(forKey: .id, in: container, debugDescription: "章节缺少 id")
+        }
+        self.id = id
+        requestId = container.lenientString(forKey: .requestId)
+        logicalKey = container.lenientString(forKey: .logicalKey)
+        storageChapterId = container.lenientString(forKey: .storageChapterId)
+        name = container.lenientString(forKey: .name)
+        order = container.lenientInt(forKey: .order)
+        extern = container.lenientObject(JSONValue.self, forKey: .extern)
+    }
+
     /// 宿主请求章节时使用 requestId，缺失时退回章节自身 id
     var resolvedRequestId: String { requestId ?? id }
 }
@@ -90,6 +145,18 @@ struct ChapterPage: Codable, Hashable, Identifiable, Sendable {
     var path: String?
     var url: String?
     var extern: JSONValue?
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        guard let id = container.lenientString(forKey: .id) else {
+            throw DecodingError.dataCorruptedError(forKey: .id, in: container, debugDescription: "页面缺少 id")
+        }
+        self.id = id
+        name = container.lenientString(forKey: .name)
+        path = container.lenientString(forKey: .path)
+        url = container.lenientString(forKey: .url)
+        extern = container.lenientObject(JSONValue.self, forKey: .extern)
+    }
 }
 
 /// 章节 + 图片列表

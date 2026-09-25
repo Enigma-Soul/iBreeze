@@ -9,7 +9,7 @@ final class SearchViewModel {
     /// nil 表示搜全部插件
     var selectedSourceID: String?
 
-    private(set) var items: [ComicListItem] = []
+    private(set) var items: [SourcedComic] = []
     private(set) var isLoading = false
     private(set) var hasReachedMax = false
     private(set) var errorMessage: String?
@@ -43,26 +43,27 @@ final class SearchViewModel {
         defer { isLoading = false }
 
         let page = loadedPages + 1
-        var collected: [ComicListItem] = []
+        var collected: [SourcedComic] = []
         var failures: [String] = []
 
         // 全局搜索时各插件并发查，谁先回来都行
-        await withTaskGroup(of: Result<ComicPagedList, Error>.self) { group in
+        await withTaskGroup(of: (String, Result<ComicPagedList, Error>).self) { group in
             for sourceID in searchedSourceIDs {
                 group.addTask { [text, page] in
                     do {
                         let source = try await PluginRegistry.shared.source(for: sourceID)
-                        return .success(try await source.pagedList(fnPath: "searchComic", page: page, keyword: text))
+                        let list = try await source.pagedList(fnPath: "searchComic", page: page, keyword: text)
+                        return (sourceID, .success(list))
                     } catch {
-                        return .failure(error)
+                        return (sourceID, .failure(error))
                     }
                 }
             }
 
-            for await result in group {
+            for await (sourceID, result) in group {
                 switch result {
                 case .success(let list):
-                    collected.append(contentsOf: list.resolvedItems)
+                    collected.append(contentsOf: list.resolvedItems.map { $0.sourced(from: sourceID) })
                     // 任一插件到底就算到底
                     if list.resolvedHasReachedMax { hasReachedMax = true }
                 case .failure(let error):

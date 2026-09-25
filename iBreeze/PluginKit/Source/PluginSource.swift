@@ -42,24 +42,20 @@ final class PluginSource: @unchecked Sendable {
         if let keyword { payload["keyword"] = keyword }
         payload["extern"] = extern?.anyValue ?? [:]
 
-        return try await runtime.invoke(
-            ComicPagedList.self,
-            fnPath: fnPath,
-            payloadJSON: try Self.json(payload)
-        )
+        let json = try await runtime.invoke(fnPath: fnPath, payloadJSON: try Self.json(payload))
+        return try Self.decode(ComicPagedList.self, from: json)
     }
 
     func comicDetail(comicID: String, extern: JSONValue? = nil) async throws -> ComicDetailResult {
-        try await runtime.invoke(
-            ComicDetailResult.self,
+        let json = try await runtime.invoke(
             fnPath: "getComicDetail",
             payloadJSON: try Self.json(["comicId": comicID, "extern": extern?.anyValue ?? [:]])
         )
+        return try Self.decode(ComicDetailResult.self, from: json)
     }
 
     func readSnapshot(comicID: String, chapterID: String, extern: JSONValue? = nil) async throws -> ReadSnapshot {
-        try await runtime.invoke(
-            ReadSnapshot.self,
+        let json = try await runtime.invoke(
             fnPath: "getReadSnapshot",
             payloadJSON: try Self.json([
                 "comicId": comicID,
@@ -67,6 +63,7 @@ final class PluginSource: @unchecked Sendable {
                 "extern": extern?.anyValue ?? [:]
             ])
         )
+        return try Self.decode(ReadSnapshot.self, from: json)
     }
 
     /// 图片下载：插件自己决定怎么拿，宿主只负责调度。
@@ -172,6 +169,15 @@ final class PluginSource: @unchecked Sendable {
             throw PluginError.invalidPayload("插件返回值不是合法 UTF-8")
         }
         return try JSONDecoder().decode(JSONValue.self, from: data)
+    }
+
+    /// 解码失败时把返回片段带上，方便判断是哪一处契约不符
+    private static func decode<T: Decodable>(_ type: T.Type, from json: String) throws -> T {
+        do {
+            return try JSONDecoder().decode(type, from: Data(json.utf8))
+        } catch {
+            throw PluginError.invalidPayload("返回格式不符（\(error.localizedDescription)）：\(json.prefix(240))")
+        }
     }
 
     private static func json(_ payload: Any) throws -> String {

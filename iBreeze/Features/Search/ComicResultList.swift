@@ -2,8 +2,7 @@ import SwiftUI
 
 /// 结果列表：首页、搜索、插件内搜索、插件列表页共用，自带触底续拉
 struct ComicResultList<Header: View>: View {
-    let items: [ComicListItem]
-    let sourceID: String
+    let items: [SourcedComic]
     let isLoading: Bool
     let hasReachedMax: Bool
     let loadMore: () -> Void
@@ -14,10 +13,9 @@ struct ComicResultList<Header: View>: View {
             header
 
             LazyVStack(spacing: 0) {
-                ForEach(items) { item in
-                    // 全局搜索的结果来自不同插件，优先用条目自带的 source
-                    NavigationLink(value: AppRoute.comicDetail(sourceID: item.source ?? sourceID, comicID: item.id)) {
-                        ComicListRow(item: item, sourceID: item.source ?? sourceID)
+                ForEach(items) { sourced in
+                    NavigationLink(value: AppRoute.comicDetail(sourceID: sourced.sourceID, comicID: sourced.item.id)) {
+                        ComicListRow(item: sourced.item, sourceID: sourced.sourceID)
                     }
                     .buttonStyle(.plain)
 
@@ -50,14 +48,43 @@ struct ComicResultList<Header: View>: View {
 
 extension ComicResultList where Header == EmptyView {
     /// 没有头部内容时的简写
-    init(items: [ComicListItem], sourceID: String, isLoading: Bool, hasReachedMax: Bool, loadMore: @escaping () -> Void) {
+    init(items: [SourcedComic], isLoading: Bool, hasReachedMax: Bool, loadMore: @escaping () -> Void) {
         self.init(
             items: items,
-            sourceID: sourceID,
             isLoading: isLoading,
             hasReachedMax: hasReachedMax,
             loadMore: loadMore,
             header: { EmptyView() }
+        )
+    }
+
+    /// 单一来源、且没有头部内容
+    init(items: [ComicListItem], sourceID: String, isLoading: Bool, hasReachedMax: Bool, loadMore: @escaping () -> Void) {
+        self.init(
+            items: items.map { $0.sourced(from: sourceID) },
+            isLoading: isLoading,
+            hasReachedMax: hasReachedMax,
+            loadMore: loadMore
+        )
+    }
+}
+
+extension ComicResultList {
+    /// 单一来源页面的简写
+    init(
+        items: [ComicListItem],
+        sourceID: String,
+        isLoading: Bool,
+        hasReachedMax: Bool,
+        loadMore: @escaping () -> Void,
+        @ViewBuilder header: () -> Header
+    ) {
+        self.init(
+            items: items.map { $0.sourced(from: sourceID) },
+            isLoading: isLoading,
+            hasReachedMax: hasReachedMax,
+            loadMore: loadMore,
+            header: header
         )
     }
 }

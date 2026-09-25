@@ -21,7 +21,6 @@ struct PluginSearchPage: View {
             } else {
                 ComicResultList(
                     items: viewModel.items,
-                    sourceID: sourceID,
                     isLoading: viewModel.isLoading,
                     hasReachedMax: viewModel.hasReachedMax,
                     loadMore: { Task { await viewModel.loadMore() } }

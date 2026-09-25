@@ -24,7 +24,6 @@ struct SearchView: View {
                 } else {
                     ComicResultList(
                         items: viewModel.items,
-                        sourceID: viewModel.selectedSourceID ?? "",
                         isLoading: viewModel.isLoading,
                         hasReachedMax: viewModel.hasReachedMax,
                         loadMore: { Task { await viewModel.loadMore() } }
