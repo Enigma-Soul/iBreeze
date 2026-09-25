@@ -7,6 +7,27 @@ enum SettingsKey {
     static let proxyHost = "proxy.host"
     static let proxyPort = "proxy.port"
     static let chineseConversion = "language.chineseConversion"
+    static let readingDirection = "reader.direction"
+}
+
+/// 阅读方向
+enum ReadingDirection: String, CaseIterable, Identifiable {
+    case vertical
+    case leftToRight
+    case rightToLeft
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .vertical: "纵向连续"
+        case .leftToRight: "左右翻页"
+        case .rightToLeft: "右到左翻页"
+        }
+    }
+
+    /// 横向分页模式
+    var isPaged: Bool { self != .vertical }
 }
 
 /// 网络代理类型

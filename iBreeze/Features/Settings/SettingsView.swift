@@ -7,6 +7,7 @@ struct SettingsView: View {
     @AppStorage(SettingsKey.proxyHost) private var proxyHost = ""
     @AppStorage(SettingsKey.proxyPort) private var proxyPort = ""
     @AppStorage(SettingsKey.chineseConversion) private var chineseConversion = ChineseConversion.off.rawValue
+    @AppStorage(SettingsKey.readingDirection) private var readingDirection = ReadingDirection.vertical.rawValue
 
     @State private var pendingAction: DataAction?
     @State private var resultMessage: String?
@@ -21,6 +22,7 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
+            readingSection
             proxySection
             languageSection
             pluginSection
@@ -67,6 +69,20 @@ struct SettingsView: View {
             ReadingHistoryStore.shared.clear()
         }
         resultMessage = "已\(action.rawValue)"
+    }
+
+    private var readingSection: some View {
+        Section {
+            Picker("阅读方向", selection: $readingDirection) {
+                ForEach(ReadingDirection.allCases) { option in
+                    Text(option.title).tag(option.rawValue)
+                }
+            }
+        } header: {
+            Text("阅读")
+        } footer: {
+            Text("纵向连续适合长条漫画；左右翻页适合单页作品。")
+        }
     }
 
     private var proxySection: some View {
