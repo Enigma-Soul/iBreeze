@@ -12,6 +12,15 @@ struct SettingsView: View {
 
     @State private var pendingAction: DataAction?
     @State private var resultMessage: String?
+    @State private var isTestingProxy = false
+    @State private var proxyTestResult: ProxyTestResult?
+
+    /// 代理测试结果弹窗的内容
+    private struct ProxyTestResult: Identifiable {
+        let id = UUID()
+        let title: String
+        let message: String
+    }
 
     /// 需要二次确认的数据操作
     private enum DataAction: String, Identifiable {
@@ -23,11 +32,11 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
+            pluginSection
             appearanceSection
             readingSection
             proxySection
             languageSection
-            pluginSection
             dataSection
             aboutSection
         }
@@ -48,6 +57,13 @@ struct SettingsView: View {
             Button("好", role: .cancel) {}
         } message: {
             Text(resultMessage ?? "")
+        }
+        .alert(item: $proxyTestResult) { result in
+            Alert(
+                title: Text(result.title),
+                message: Text(result.message),
+                dismissButton: .default(Text("好"))
+            )
         }
     }
 
@@ -115,12 +131,37 @@ struct SettingsView: View {
 
                 TextField("端口", text: $proxyPort)
                     .keyboardType(.numberPad)
+
+                Button {
+                    Task { await testProxy() }
+                } label: {
+                    if isTestingProxy {
+                        HStack {
+                            ProgressView()
+                            Text("正在测试")
+                        }
+                    } else {
+                        Text("测试代理")
+                    }
+                }
+                .disabled(isTestingProxy)
             }
         } header: {
             Text("网络代理")
         } footer: {
-            Text("代理对所有插件发出的请求生效。")
+            Text("代理对所有插件发出的请求生效。改完配置点一次「测试代理」确认是否真的通。")
         }
+    }
+
+    private func testProxy() async {
+        isTestingProxy = true
+        let outcome = await ProxyTester.test(proxy: ProxyConfiguration.current())
+        isTestingProxy = false
+
+        proxyTestResult = ProxyTestResult(
+            title: outcome.success ? "代理已生效" : "代理未生效",
+            message: outcome.message
+        )
     }
 
     private var languageSection: some View {

@@ -8,6 +8,7 @@ struct RootView: View {
     @State private var selection: AppTab = .home
     @State private var tabBar = TabBarVisibility()
     @AppStorage(SettingsKey.appearance) private var appearance = AppearanceMode.system.rawValue
+    @State private var showsSettings = false
 
     var body: some View {
         ZStack {
@@ -19,10 +20,13 @@ struct RootView: View {
         }
         .environment(tabBar)
         .safeAreaInset(edge: .bottom) {
-            FloatingTabBar(selection: $selection)
+            FloatingTabBar(selection: $selection) { showsSettings = true }
                 .offset(y: tabBar.isHidden ? 100 : 0)
                 .opacity(tabBar.isHidden ? 0 : 1)
                 .animation(.snappy(duration: 0.25), value: tabBar.isHidden)
+        }
+        .sheet(isPresented: $showsSettings) {
+            NavigationStack { SettingsView() }
         }
         .onChange(of: selection) { _, _ in tabBar.reset() }
         .preferredColorScheme(AppearanceMode(rawValue: appearance)?.colorScheme)
