@@ -15,8 +15,9 @@ struct ComicResultList<Header: View>: View {
 
             LazyVStack(spacing: 0) {
                 ForEach(items) { item in
-                    NavigationLink(value: AppRoute.comicDetail(sourceID: sourceID, comicID: item.id)) {
-                        ComicListRow(item: item, sourceID: sourceID)
+                    // 全局搜索的结果来自不同插件，优先用条目自带的 source
+                    NavigationLink(value: AppRoute.comicDetail(sourceID: item.source ?? sourceID, comicID: item.id)) {
+                        ComicListRow(item: item, sourceID: item.source ?? sourceID)
                     }
                     .buttonStyle(.plain)
 
