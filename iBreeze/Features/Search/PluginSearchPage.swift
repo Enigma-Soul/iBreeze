@@ -18,7 +18,7 @@ struct PluginSearchPage: View {
                     description: Text(viewModel.errorMessage ?? "输入关键词后回车")
                 )
             } else {
-                ComicResultGrid(
+                ComicResultList(
                     items: viewModel.items,
                     sourceID: plugin.uuid,
                     isLoading: viewModel.isLoading,

@@ -36,7 +36,7 @@ struct SearchView: View {
     }
 
     private var results: some View {
-        ComicResultGrid(
+        ComicResultList(
             items: viewModel.items,
             sourceID: currentSourceID,
             isLoading: viewModel.isLoading,

@@ -14,6 +14,7 @@ struct HomeView: View {
                 }
                 .padding(.vertical, AppTheme.Spacing.section)
             }
+            .tracksTabBarVisibility()
             .navigationTitle(AppTab.home.title)
             .appNavigationDestinations()
             .toolbar {

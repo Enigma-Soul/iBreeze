@@ -1,38 +1,43 @@
 import SwiftUI
 
-/// 根视图：首页 / 搜索 / 收藏 三个标签页
+/// 根视图：首页 / 搜索 / 收藏，底部是自绘的悬浮玻璃标签栏。
+///
+/// 三个页面用 `ZStack` + 透明度切换而不是 `TabView`：这样切页时各自的
+/// 滚动位置与已加载数据都会保留，标签栏也能随滚动收起。
 struct RootView: View {
     @State private var selection: AppTab = .home
+    @State private var tabBar = TabBarVisibility()
 
     var body: some View {
-        TabView(selection: $selection) {
-            Tab(AppTab.home.title, systemImage: AppTab.home.systemImage, value: AppTab.home) {
-                HomeView()
-            }
-
-            Tab(AppTab.search.title, systemImage: AppTab.search.systemImage, value: AppTab.search) {
-                SearchView()
-            }
-
-            Tab(AppTab.favorites.title, systemImage: AppTab.favorites.systemImage, value: AppTab.favorites) {
-                FavoritesView()
+        ZStack {
+            ForEach(AppTab.allCases) { tab in
+                page(for: tab)
+                    .opacity(selection == tab ? 1 : 0)
+                    .allowsHitTesting(selection == tab)
             }
         }
-        .modifier(MinimizeTabBarOnScroll())
+        .environment(tabBar)
+        .safeAreaInset(edge: .bottom) {
+            FloatingTabBar(selection: $selection)
+                .offset(y: tabBar.isHidden ? 100 : 0)
+                .opacity(tabBar.isHidden ? 0 : 1)
+                .animation(.snappy(duration: 0.25), value: tabBar.isHidden)
+        }
+        .onChange(of: selection) { _, _ in tabBar.reset() }
     }
-}
 
-/// iOS 26 起支持滚动时收起标签栏
-private struct MinimizeTabBarOnScroll: ViewModifier {
-    func body(content: Content) -> some View {
-        if #available(iOS 26.0, *) {
-            content.tabBarMinimizeBehavior(.onScrollDown)
-        } else {
-            content
+    @ViewBuilder
+    private func page(for tab: AppTab) -> some View {
+        switch tab {
+        case .home: HomeView()
+        case .search: SearchView()
+        case .favorites: FavoritesView()
         }
     }
 }
 
 #Preview {
     RootView()
+        .environment(PluginRegistry.shared)
+        .environment(ReadingHistoryStore.shared)
 }

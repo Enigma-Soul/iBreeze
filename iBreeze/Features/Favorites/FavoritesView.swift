@@ -1,12 +1,8 @@
 import SwiftUI
 
-/// 收藏页：本地收藏的漫画
+/// 收藏页：本地收藏的漫画，单列行展示
 struct FavoritesView: View {
     private var favorites = FavoritesStore.shared
-
-    private let columns = [
-        GridItem(.adaptive(minimum: 110, maximum: 180), spacing: AppTheme.Spacing.grid)
-    ]
 
     var body: some View {
         NavigationStack {
@@ -18,7 +14,7 @@ struct FavoritesView: View {
                         description: Text("在漫画详情页点右上角收藏")
                     )
                 } else {
-                    grid
+                    list
                 }
             }
             .navigationTitle(AppTab.favorites.title)
@@ -26,20 +22,12 @@ struct FavoritesView: View {
         }
     }
 
-    private var grid: some View {
+    private var list: some View {
         ScrollView {
-            LazyVGrid(columns: columns, spacing: AppTheme.Spacing.grid) {
+            LazyVStack(spacing: 0) {
                 ForEach(favorites.entries) { entry in
                     NavigationLink(value: AppRoute.comicDetail(sourceID: entry.source, comicID: entry.comicID)) {
-                        VStack(alignment: .leading, spacing: 6) {
-                            PluginImageView(sourceID: entry.source, url: entry.coverURL)
-                                .frame(height: 150)
-                                .clipShape(RoundedRectangle(cornerRadius: AppTheme.Radius.card, style: .continuous))
-
-                            Text(entry.title.convertedChinese)
-                                .font(.caption.weight(.medium))
-                                .lineLimit(1)
-                        }
+                        row(for: entry)
                     }
                     .buttonStyle(.plain)
                     .contextMenu {
@@ -47,9 +35,38 @@ struct FavoritesView: View {
                             favorites.remove(source: entry.source, comicID: entry.comicID)
                         }
                     }
+
+                    Divider().padding(.leading, AppTheme.Size.listThumbnail.width + 12)
                 }
             }
             .padding(.horizontal, AppTheme.Spacing.page)
         }
+        .tracksTabBarVisibility()
+    }
+
+    private func row(for entry: FavoriteEntry) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            PluginImageView(sourceID: entry.source, url: entry.coverURL)
+                .frame(width: AppTheme.Size.listThumbnail.width, height: AppTheme.Size.listThumbnail.height)
+                .clipShape(RoundedRectangle(cornerRadius: AppTheme.Radius.thumbnail, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text(entry.title.convertedChinese)
+                    .font(.subheadline.weight(.medium))
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+
+                Spacer(minLength: 0)
+
+                Text(entry.addedAt.formatted(date: .numeric, time: .omitted))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .frame(height: AppTheme.Size.listThumbnail.height)
+        .padding(.vertical, 6)
+        .contentShape(Rectangle())
     }
 }

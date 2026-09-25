@@ -23,4 +23,13 @@ enum AppTab: String, CaseIterable, Identifiable, Hashable {
         case .favorites: "heart"
         }
     }
+
+    /// 选中态用实心图标，和悬浮标签栏的其余状态区分开
+    var selectedSystemImage: String {
+        switch self {
+        case .home: "house.fill"
+        case .search: "magnifyingglass"
+        case .favorites: "heart.fill"
+        }
+    }
 }
