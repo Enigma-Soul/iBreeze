@@ -43,6 +43,7 @@ struct ComicListPage: View {
             loadMore: { Task { await viewModel.loadMore() } }
         )
         .navigationTitle(title)
+        .hidesFloatingTabBar()
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { filterToolbar }
         .refreshable { await viewModel.refresh() }

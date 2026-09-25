@@ -86,6 +86,7 @@ struct ComicDetailPage: View {
             }
         }
         .navigationTitle(viewModel.info?.title ?? "详情")
+        .hidesFloatingTabBar()
         .navigationBarTitleDisplayMode(.inline)
         .task { if viewModel.detail == nil { await viewModel.load() } }
         .overlay { loadingOverlay }

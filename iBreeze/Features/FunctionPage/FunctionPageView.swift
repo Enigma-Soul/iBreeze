@@ -54,6 +54,7 @@ struct FunctionPageView: View {
                 .padding(.vertical, 12)
         }
         .navigationTitle(viewModel.page?.scheme?.title ?? title)
+        .hidesFloatingTabBar()
         .navigationBarTitleDisplayMode(.inline)
         .task { await viewModel.load() }
         .overlay { stateOverlay }

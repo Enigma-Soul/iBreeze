@@ -29,6 +29,7 @@ struct PluginSearchPage: View {
             }
         }
         .navigationTitle(sourceName)
+        .hidesFloatingTabBar()
         .navigationBarTitleDisplayMode(.inline)
         .task { await submitInitialKeyword() }
     }

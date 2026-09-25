@@ -141,6 +141,16 @@ struct HomeView: View {
                 loadMore: { Task { await list.loadMore() } },
                 header: { ContinueReadingStrip() }
             )
+            // 取数失败时给出提示，否则点了入口像是没反应
+            .overlay {
+                if list.items.isEmpty, !list.isLoading, let message = list.errorMessage {
+                    ContentUnavailableView(
+                        "加载失败",
+                        systemImage: "exclamationmark.triangle",
+                        description: Text(message)
+                    )
+                }
+            }
 
         case .route(let title, let route):
             VStack(spacing: 12) {

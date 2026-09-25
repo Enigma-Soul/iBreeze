@@ -9,6 +9,10 @@ struct RootView: View {
     @State private var tabBar = TabBarVisibility()
     @AppStorage(SettingsKey.appearance) private var appearance = AppearanceMode.system.rawValue
     @State private var showsSettings = false
+    /// 二级页面（详情/阅读等）要求隐藏标签栏
+    @State private var isHiddenByChildPage = false
+
+    private var isTabBarHidden: Bool { tabBar.isHidden || isHiddenByChildPage }
 
     var body: some View {
         ZStack {
@@ -21,10 +25,11 @@ struct RootView: View {
         .environment(tabBar)
         .safeAreaInset(edge: .bottom) {
             FloatingTabBar(selection: $selection) { showsSettings = true }
-                .offset(y: tabBar.isHidden ? 100 : 0)
-                .opacity(tabBar.isHidden ? 0 : 1)
-                .animation(.snappy(duration: 0.25), value: tabBar.isHidden)
+                .offset(y: isTabBarHidden ? 100 : 0)
+                .opacity(isTabBarHidden ? 0 : 1)
+                .animation(.snappy(duration: 0.25), value: isTabBarHidden)
         }
+        .observesFloatingTabBarVisibility { isHiddenByChildPage = $0 }
         .sheet(isPresented: $showsSettings) {
             NavigationStack { SettingsView() }
         }
