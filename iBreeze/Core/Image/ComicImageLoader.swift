@@ -8,11 +8,22 @@ import os
 actor ComicImageLoader {
     static let shared = ComicImageLoader()
 
+    enum Outcome {
+        case success(UIImage)
+        case failure(String)
+    }
+
+    /// 同时下载的上限：图源不通时并发太多会把整页拖住
+    private static let maxConcurrent = 4
+
     private let logger = Logger(subsystem: "com.enigma-soul.ibreeze", category: "ComicImage")
     private let memory = NSCache<NSString, UIImage>()
     private let directory: URL
     /// 同一张图只允许一个在途请求
-    private var inFlight: [String: Task<UIImage?, Never>] = [:]
+    private var inFlight: [String: Task<Outcome, Never>] = [:]
+
+    private var activeDownloads = 0
+    private var waitingSlots: [CheckedContinuation<Void, Never>] = []
 
     init(directory: URL? = nil) {
         let base = directory ?? FileManager.default
@@ -24,23 +35,33 @@ actor ComicImageLoader {
     }
 
     /// 取图：命中缓存直接返回，否则让插件下载
-    func image(pluginUUID: String, url: String, source: PluginSource) async -> UIImage? {
+    func load(pluginUUID: String, url: String, source: PluginSource) async -> Outcome {
         let key = Self.cacheKey(pluginUUID: pluginUUID, url: url)
 
-        if let cached = memory.object(forKey: key as NSString) { return cached }
+        if let cached = memory.object(forKey: key as NSString) { return .success(cached) }
         if let task = inFlight[key] { return await task.value }
 
-        let task = Task<UIImage?, Never> { [weak self] in
-            guard let self else { return nil }
-            if let image = await loadFromDisk(key: key) { return image }
+        let task = Task<Outcome, Never> { [weak self] in
+            guard let self else { return .failure("加载器已释放") }
+            if let image = await loadFromDisk(key: key) { return .success(image) }
             return await download(key: key, url: url, source: source)
         }
         inFlight[key] = task
 
-        let image = await task.value
+        let outcome = await task.value
         inFlight[key] = nil
-        if let image { memory.setObject(image, forKey: key as NSString) }
-        return image
+        if case .success(let image) = outcome {
+            memory.setObject(image, forKey: key as NSString)
+        }
+        return outcome
+    }
+
+    /// 只要图片本身，失败返回 nil
+    func image(pluginUUID: String, url: String, source: PluginSource) async -> UIImage? {
+        if case .success(let image) = await load(pluginUUID: pluginUUID, url: url, source: source) {
+            return image
+        }
+        return nil
     }
 
     /// 预取，用于阅读页提前加载后几页
@@ -59,18 +80,23 @@ actor ComicImageLoader {
         logger.info("已清空图片缓存")
     }
 
-    private func download(key: String, url: String, source: PluginSource) async -> UIImage? {
+    // MARK: - 内部实现
+
+    private func download(key: String, url: String, source: PluginSource) async -> Outcome {
+        await acquireSlot()
+        defer { releaseSlot() }
+
         do {
             let data = try await source.imageBytes(url: url)
             guard let image = UIImage(data: data) else {
                 logger.error("图片解码失败：\(url, privacy: .public)")
-                return nil
+                return .failure("图片解码失败")
             }
             try? data.write(to: fileURL(for: key), options: .atomic)
-            return image
+            return .success(image)
         } catch {
             logger.error("图片下载失败：\(error.localizedDescription, privacy: .public)")
-            return nil
+            return .failure(error.localizedDescription)
         }
     }
 
@@ -83,6 +109,23 @@ actor ComicImageLoader {
 
     private func fileURL(for key: String) -> URL {
         directory.appendingPathComponent(key)
+    }
+
+    /// 下载并发闸门：拿不到槽位就排队，槽位直接转交给下一个等待者
+    private func acquireSlot() async {
+        if activeDownloads < Self.maxConcurrent {
+            activeDownloads += 1
+            return
+        }
+        await withCheckedContinuation { waitingSlots.append($0) }
+    }
+
+    private func releaseSlot() {
+        guard !waitingSlots.isEmpty else {
+            activeDownloads = max(0, activeDownloads - 1)
+            return
+        }
+        waitingSlots.removeFirst().resume()
     }
 
     /// 缓存键：插件 uuid + 图片地址的摘要，避免文件名过长或非法

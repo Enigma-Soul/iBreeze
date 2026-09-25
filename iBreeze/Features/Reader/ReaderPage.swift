@@ -102,7 +102,6 @@ struct ReaderPage: View {
     @State private var draggingPage: Double?
 
     @AppStorage(SettingsKey.readingDirection) private var directionRaw = ReadingDirection.vertical.rawValue
-    @Environment(\.dismiss) private var dismiss
 
     private var direction: ReadingDirection {
         ReadingDirection(rawValue: directionRaw) ?? .vertical
@@ -140,7 +139,11 @@ struct ReaderPage: View {
             )
         }
         .background(Color.black)
-        .toolbarVisibility(.hidden, for: .navigationBar)
+        // 沉浸模式下连导航栏一起藏；显示时用系统返回键，侧滑返回也可用
+        .toolbarVisibility(showsChrome ? .visible : .hidden, for: .navigationBar)
+        .toolbarBackground(.hidden, for: .navigationBar)
+        .toolbarColorScheme(.dark, for: .navigationBar)
+        .hidesFloatingTabBar()
         .statusBarHidden(!showsChrome)
         .task { if viewModel.pages.isEmpty { await viewModel.load() } }
         .onChange(of: currentPageID) { _, _ in
@@ -164,10 +167,17 @@ struct ReaderPage: View {
     private var continuousReader: some View {
         ScrollView(.vertical) {
             LazyVStack(spacing: 0) {
-                ForEach(viewModel.pages) { page in
-                    PluginImageView(sourceID: sourceID, url: page.url, contentMode: .fit)
-                        .frame(maxWidth: .infinity)
-                        .id(page.id)
+                ForEach(Array(viewModel.pages.enumerated()), id: \.element.id) { index, page in
+                    // 加载完成前先占 400pt 并显示页码：图源慢时页面不会叠在一起
+                    PluginImageView(
+                        sourceID: sourceID,
+                        url: page.url,
+                        contentMode: .fit,
+                        pageNumber: index + 1,
+                        placeholderHeight: 400
+                    )
+                    .frame(maxWidth: .infinity)
+                    .id(page.id)
                 }
             }
         }
@@ -178,10 +188,16 @@ struct ReaderPage: View {
     private var pagedReader: some View {
         ScrollView(.horizontal) {
             LazyHStack(spacing: 0) {
-                ForEach(viewModel.pages) { page in
-                    PluginImageView(sourceID: sourceID, url: page.url, contentMode: .fit)
-                        .containerRelativeFrame(.horizontal)
-                        .id(page.id)
+                ForEach(Array(viewModel.pages.enumerated()), id: \.element.id) { index, page in
+                    PluginImageView(
+                        sourceID: sourceID,
+                        url: page.url,
+                        contentMode: .fit,
+                        pageNumber: index + 1
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .containerRelativeFrame(.horizontal)
+                    .id(page.id)
                 }
             }
             .scrollTargetLayout()
@@ -210,11 +226,6 @@ struct ReaderPage: View {
     private var topBar: some View {
         HStack(spacing: 8) {
             glassCapsule {
-                Button { dismiss() } label: {
-                    Image(systemName: "chevron.left")
-                }
-                .accessibilityLabel("返回")
-
                 Text(chapterName.isEmpty ? comicTitle : chapterName)
                     .font(.footnote)
                     .lineLimit(1)
