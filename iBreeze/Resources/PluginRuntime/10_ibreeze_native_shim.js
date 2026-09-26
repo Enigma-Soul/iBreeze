@@ -39,63 +39,132 @@
 
   var BASE64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
+  /// 查表 + 分块 fromCharCode：逐字符拼接在解释器里慢到不能用，
+  /// 几 MB 的图片走一遍就是好几秒
+  var BASE64_VALUES = (function () {
+    var table = new Int16Array(256);
+    for (var i = 0; i < 256; i += 1) table[i] = -1;
+    for (var j = 0; j < BASE64_CHARS.length; j += 1) table[BASE64_CHARS.charCodeAt(j)] = j;
+    return table;
+  })();
+
+  var BASE64_CODES = (function () {
+    var codes = new Uint8Array(64);
+    for (var i = 0; i < 64; i += 1) codes[i] = BASE64_CHARS.charCodeAt(i);
+    return codes;
+  })();
+
+  var BASE64_CHUNK = 0x8000;
+
   function bytesToBase64(bytes) {
-    var binary = "";
-    for (var i = 0; i < bytes.length; i += 1) {
-      binary += String.fromCharCode(bytes[i]);
+    var length = bytes.length;
+    var extra = length % 3;
+    var main = length - extra;
+    var pieces = [];
+    var buffer = new Array(BASE64_CHUNK);
+    var filled = 0;
+
+    function flush() {
+      if (filled === 0) return;
+      pieces.push(String.fromCharCode.apply(null, filled === buffer.length ? buffer : buffer.slice(0, filled)));
+      filled = 0;
     }
-    return btoa(binary);
+
+    for (var i = 0; i < main; i += 3) {
+      var value = (bytes[i] << 16) | (bytes[i + 1] << 8) | bytes[i + 2];
+      buffer[filled] = BASE64_CODES[(value >> 18) & 63];
+      buffer[filled + 1] = BASE64_CODES[(value >> 12) & 63];
+      buffer[filled + 2] = BASE64_CODES[(value >> 6) & 63];
+      buffer[filled + 3] = BASE64_CODES[value & 63];
+      filled += 4;
+      if (filled >= BASE64_CHUNK - 4) flush();
+    }
+
+    if (extra === 1) {
+      var single = bytes[main];
+      buffer[filled] = BASE64_CODES[(single >> 2) & 63];
+      buffer[filled + 1] = BASE64_CODES[(single & 3) << 4];
+      buffer[filled + 2] = 61;
+      buffer[filled + 3] = 61;
+      filled += 4;
+    } else if (extra === 2) {
+      var pair = (bytes[main] << 8) | bytes[main + 1];
+      buffer[filled] = BASE64_CODES[(pair >> 10) & 63];
+      buffer[filled + 1] = BASE64_CODES[(pair >> 4) & 63];
+      buffer[filled + 2] = BASE64_CODES[(pair & 15) << 2];
+      buffer[filled + 3] = 61;
+      filled += 4;
+    }
+
+    flush();
+    return pieces.join("");
   }
 
   function bytesFromBase64(text) {
-    var binary = atob(text);
-    var bytes = new Uint8Array(binary.length);
-    for (var i = 0; i < binary.length; i += 1) {
-      bytes[i] = binary.charCodeAt(i);
+    var source = String(text);
+    var length = source.length;
+    var padding = 0;
+
+    while (length > 0 && source.charCodeAt(length - 1) === 61) {
+      padding += 1;
+      length -= 1;
     }
-    return bytes;
+
+    var bytes = new Uint8Array((length * 3) >> 2);
+    var index = 0;
+    var i = 0;
+    var limit = length - (length % 4);
+
+    for (; i < limit; i += 4) {
+      var a = BASE64_VALUES[source.charCodeAt(i)];
+      var b = BASE64_VALUES[source.charCodeAt(i + 1)];
+      var c = BASE64_VALUES[source.charCodeAt(i + 2)];
+      var d = BASE64_VALUES[source.charCodeAt(i + 3)];
+      bytes[index] = (a << 2) | (b >> 4);
+      bytes[index + 1] = ((b & 15) << 4) | (c >> 2);
+      bytes[index + 2] = ((c & 3) << 6) | d;
+      index += 3;
+    }
+
+    var rest = length % 4;
+    if (rest >= 2) {
+      var x = BASE64_VALUES[source.charCodeAt(i)];
+      var y = BASE64_VALUES[source.charCodeAt(i + 1)];
+      bytes[index] = (x << 2) | (y >> 4);
+      index += 1;
+      if (rest === 3) {
+        var z = BASE64_VALUES[source.charCodeAt(i + 2)];
+        bytes[index] = ((y & 15) << 4) | (z >> 2);
+        index += 1;
+      }
+    }
+
+    return index === bytes.length ? bytes : bytes.subarray(0, index);
   }
 
   // btoa/atob 在 JavaScriptCore 里不存在，这里补上
   if (typeof globalThis.btoa !== "function") {
     globalThis.btoa = function (input) {
-      var text = String(input);
-      var output = "";
-      for (var i = 0; i < text.length; i += 3) {
-        var c1 = text.charCodeAt(i);
-        var c2 = text.charCodeAt(i + 1);
-        var c3 = text.charCodeAt(i + 2);
-        output += BASE64_CHARS.charAt(c1 >> 2);
-        output += BASE64_CHARS.charAt(((c1 & 3) << 4) | (isNaN(c2) ? 0 : c2 >> 4));
-        output += isNaN(c2) ? "=" : BASE64_CHARS.charAt(((c2 & 15) << 2) | (isNaN(c3) ? 0 : c3 >> 6));
-        output += isNaN(c3) ? "=" : BASE64_CHARS.charAt(c3 & 63);
-      }
-      return output;
+      return bytesToBase64(toBytes(String(input)));
     };
-  }
-
-  /// 取 Base64 字符值；越界或填充符返回 -1
-  function base64Value(text, index) {
-    if (index < 0 || index >= text.length) return -1;
-    return BASE64_CHARS.indexOf(text.charAt(index));
   }
 
   if (typeof globalThis.atob !== "function") {
     globalThis.atob = function (input) {
-      var text = String(input);
-      var output = "";
-      for (var i = 0; i < text.length; i += 4) {
-        var n1 = base64Value(text, i);
-        var n2 = base64Value(text, i + 1);
-        var n3 = base64Value(text, i + 2);
-        var n4 = base64Value(text, i + 3);
-        if (n1 < 0 || n2 < 0) break;
-        output += String.fromCharCode((n1 << 2) | (n2 >> 4));
-        if (n3 >= 0) output += String.fromCharCode(((n2 & 15) << 4) | (n3 >> 2));
-        if (n4 >= 0) output += String.fromCharCode(((n3 & 3) << 6) | n4);
-      }
-      return output;
+      var bytes = bytesFromBase64(String(input));
+      var text = "";
+      for (var i = 0; i < bytes.length; i += 1) text += String.fromCharCode(bytes[i]);
+      return text;
     };
+  }
+
+  // 00_bootstrap 只在缺失时才补这两个全局，这里先占住，
+  // 免得插件拿到它那套走 JSON 数组的慢实现
+  if (typeof globalThis.bytesToBase64 !== "function") {
+    globalThis.bytesToBase64 = bytesToBase64;
+  }
+  if (typeof globalThis.bytesFromBase64 !== "function") {
+    globalThis.bytesFromBase64 = bytesFromBase64;
   }
 
   // ---- 宿主调用总线：JS → Swift ----
