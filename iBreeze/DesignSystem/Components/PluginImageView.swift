@@ -11,6 +11,8 @@ struct PluginImageView: View {
     var placeholderHeight: CGFloat?
     /// 页面带来的透传上下文，可能含真实图址，必须回传给插件
     var extern: JSONValue?
+    /// 所属章节：禁漫的图要靠章节 id 才能还原
+    var chapterID: String?
 
     @Environment(PluginRegistry.self) private var registry
     @State private var image: UIImage?
@@ -73,7 +75,13 @@ struct PluginImageView: View {
             return
         }
 
-        switch await ComicImageLoader.shared.load(pluginUUID: sourceID, url: url, extern: extern, source: source) {
+        switch await ComicImageLoader.shared.load(
+            pluginUUID: sourceID,
+            url: url,
+            extern: extern,
+            chapterID: chapterID,
+            source: source
+        ) {
         case .success(let loaded):
             image = loaded
         case .failure(let message):

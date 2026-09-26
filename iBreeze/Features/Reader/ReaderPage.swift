@@ -72,7 +72,14 @@ final class ReaderViewModel {
             return (url, page.extern)
         }
         guard !targets.isEmpty else { return }
-        Task { await ComicImageLoader.shared.prefetch(pluginUUID: sourceID, pages: targets, source: source) }
+        Task {
+            await ComicImageLoader.shared.prefetch(
+                pluginUUID: sourceID,
+                pages: targets,
+                chapterID: chapterID,
+                source: source
+            )
+        }
     }
 }
 
@@ -178,7 +185,8 @@ struct ReaderPage: View {
                         contentMode: .fit,
                         pageNumber: index + 1,
                         placeholderHeight: 400,
-                        extern: page.extern
+                        extern: page.extern,
+                        chapterID: viewModel.chapterID
                     )
                     .frame(maxWidth: .infinity)
                     .id(page.id)
@@ -198,7 +206,8 @@ struct ReaderPage: View {
                         url: page.url,
                         contentMode: .fit,
                         pageNumber: index + 1,
-                        extern: page.extern
+                        extern: page.extern,
+                        chapterID: viewModel.chapterID
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .containerRelativeFrame(.horizontal)

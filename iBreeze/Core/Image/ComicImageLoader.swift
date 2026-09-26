@@ -39,7 +39,13 @@ actor ComicImageLoader {
     ///
     /// `extern` 是页面上带的透传上下文，可能包含真实图址，必须原样回传给插件，
     /// 因此也要参与缓存键。
-    func load(pluginUUID: String, url: String, extern: JSONValue? = nil, source: PluginSource) async -> Outcome {
+    func load(
+        pluginUUID: String,
+        url: String,
+        extern: JSONValue? = nil,
+        chapterID: String? = nil,
+        source: PluginSource
+    ) async -> Outcome {
         let key = Self.cacheKey(pluginUUID: pluginUUID, url: url, extern: extern)
 
         if let cached = memory.object(forKey: key as NSString) { return .success(cached) }
@@ -48,7 +54,14 @@ actor ComicImageLoader {
         let task = Task<Outcome, Never> { [weak self] in
             guard let self else { return .failure("加载器已释放") }
             if let image = await loadFromDisk(key: key) { return .success(image) }
-            return await download(key: key, url: url, extern: extern, source: source)
+            return await download(
+                key: key,
+                pluginUUID: pluginUUID,
+                url: url,
+                extern: extern,
+                chapterID: chapterID,
+                source: source
+            )
         }
         inFlight[key] = task
 
@@ -69,9 +82,22 @@ actor ComicImageLoader {
     }
 
     /// 预取，用于阅读页提前加载后几页
-    func prefetch(pluginUUID: String, pages: [(url: String, extern: JSONValue?)], source: PluginSource) {
+    func prefetch(
+        pluginUUID: String,
+        pages: [(url: String, extern: JSONValue?)],
+        chapterID: String? = nil,
+        source: PluginSource
+    ) {
         for page in pages {
-            Task { _ = await load(pluginUUID: pluginUUID, url: page.url, extern: page.extern, source: source) }
+            Task {
+                _ = await load(
+                    pluginUUID: pluginUUID,
+                    url: page.url,
+                    extern: page.extern,
+                    chapterID: chapterID,
+                    source: source
+                )
+            }
         }
     }
 
@@ -86,7 +112,14 @@ actor ComicImageLoader {
 
     // MARK: - 内部实现
 
-    private func download(key: String, url: String, extern: JSONValue?, source: PluginSource) async -> Outcome {
+    private func download(
+        key: String,
+        pluginUUID: String,
+        url: String,
+        extern: JSONValue?,
+        chapterID: String?,
+        source: PluginSource
+    ) async -> Outcome {
         await acquireSlot()
         defer { releaseSlot() }
 
@@ -99,11 +132,22 @@ actor ComicImageLoader {
                 let data = try await withTimeout(seconds: timeout) {
                     try await source.imageBytes(url: url, extern: extern, timeoutMs: timeout * 1000)
                 }
-                guard let image = UIImage(data: data) else {
+                guard let decoded = UIImage(data: data) else {
                     logger.error("图片解码失败：\(url, privacy: .public)")
                     return .failure("图片解码失败")
                 }
-                try? data.write(to: fileURL(for: key), options: .atomic)
+
+                // 禁漫的图是分块打乱的，宿主还原后再缓存，避免每次都算一遍
+                var image = decoded
+                var cacheData = data
+                if ComicImageDescrambler.needsDescrambling(pluginUUID: pluginUUID), let chapterID {
+                    image = ComicImageDescrambler.descramble(decoded, chapterID: chapterID, url: url)
+                    if let encoded = image.jpegData(compressionQuality: 0.92) {
+                        cacheData = encoded
+                    }
+                }
+
+                try? cacheData.write(to: fileURL(for: key), options: .atomic)
                 return .success(image)
             } catch {
                 lastError = error.localizedDescription
