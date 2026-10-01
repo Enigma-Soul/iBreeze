@@ -8,7 +8,7 @@
 插件运行时是按 [Breeze](https://github.com/deretame/Breeze) 的插件规范用 Swift + JavaScriptCore 重写的——
 Breeze 生态里现成的插件不用改一行代码就能装进来用。
 
-[![Build](https://github.com/ryongcai/iBreeze/actions/workflows/build.yml/badge.svg?branch=develop)](https://github.com/ryongcai/iBreeze/actions/workflows/build.yml)
+[![Build](https://github.com/Enigma-Soul/iBreeze/actions/workflows/build.yml/badge.svg?branch=develop)](https://github.com/Enigma-Soul/iBreeze/actions/workflows/build.yml)
 [![Platform](https://img.shields.io/badge/platform-iOS%2018%2B-blue.svg)](#快速开始)
 [![License](https://img.shields.io/badge/license-MPL--2.0-blue.svg)](LICENSE)
 
@@ -42,7 +42,7 @@ Breeze 生态里现成的插件不用改一行代码就能装进来用。
 > [!WARNING]
 > 仓库只产出**未签名 ipa**，需要自己用 AltStore、Sideloadly、TrollStore 等工具重签后再安装。
 
-1. 打开 [Actions](https://github.com/ryongcai/iBreeze/actions/workflows/build.yml) 里最新一次成功的构建
+1. 打开 [Actions](https://github.com/Enigma-Soul/iBreeze/actions/workflows/build.yml) 里最新一次成功的构建
 2. 下载产物 `iBreeze-unsigned-ipa`
 3. 重签并安装到设备（iOS 18 及以上）
 
