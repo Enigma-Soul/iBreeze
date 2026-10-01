@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 「继续阅读」：最近读过的条目，出现在首页列表的头部
+/// 「继续阅读」：最近读过的条目，固定在首页插件图标下方、不随列表滚动
 struct ContinueReadingStrip: View {
     private var history = ReadingHistoryStore.shared
 

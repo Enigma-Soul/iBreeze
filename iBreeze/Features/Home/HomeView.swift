@@ -41,6 +41,11 @@ struct HomeView: View {
                     }
                 ))
 
+                // 阅读记录紧挨在插件图标下面，且不随列表滚动，切入口时也一直在
+                ContinueReadingStrip()
+
+                Divider()
+
                 if viewModel.entries.count > 1 {
                     EntryPillStrip(entries: viewModel.entries, selection: Binding(
                         get: { viewModel.selectedEntryID },
@@ -50,8 +55,6 @@ struct HomeView: View {
                         }
                     ))
                 }
-
-                Divider()
             }
             .padding(.top, 8)
             .padding(.bottom, 4)
@@ -138,8 +141,7 @@ struct HomeView: View {
                 sourceID: viewModel.selectedSourceID ?? "",
                 isLoading: list.isLoading,
                 hasReachedMax: list.hasReachedMax,
-                loadMore: { Task { await list.loadMore() } },
-                header: { ContinueReadingStrip() }
+                loadMore: { Task { await list.loadMore() } }
             )
             // 取数失败时给出提示，否则点了入口像是没反应
             .overlay {
