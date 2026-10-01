@@ -44,9 +44,10 @@ struct PluginImageView: View {
             if let errorMessage {
                 VStack(spacing: 8) {
                     Image(systemName: "exclamationmark.triangle")
+                    // 放宽几行：失败信息后面跟着插件返回的片段，截断了就没法定位
                     Text(errorMessage)
                         .font(.caption2)
-                        .lineLimit(2)
+                        .lineLimit(5)
                         .multilineTextAlignment(.center)
                     Button("重试") { Task { await load(force: true) } }
                         .font(.caption)

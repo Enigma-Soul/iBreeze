@@ -103,6 +103,17 @@ mark("装载完成");
 const info = parse(await runtime.invoke("getInfo"));
 mark("getInfo", `v${info.version}`);
 
+// App 装载完会调一次 init（哔咔靠它建会话），探针必须一致，否则拿到的
+// 可能是「未初始化」分支的返回值
+if (runtime.context.__pluginExports?.init) {
+  try {
+    await runtime.invoke("init", {});
+    mark("init 完成");
+  } catch (error) {
+    mark("init 失败", String(error.message).slice(0, 120));
+  }
+}
+
 async function invoke(fnPath, payload = {}) {
   const at = Date.now();
   const raw = await runtime.invoke(fnPath, payload);
@@ -162,7 +173,9 @@ async function fetchPage(page) {
       extern: page.extern ?? {},
     });
     const bytes = parse(raw).__ibreezeBinary ?? null;
-    if (typeof bytes !== "string") throw new Error("返回值里没有二进制信封");
+    if (typeof bytes !== "string") {
+      throw new Error(`返回值里没有二进制信封，前 300 字符：${raw.slice(0, 300)}`);
+    }
     return { size: Math.floor((bytes.length * 3) / 4), elapsed: Date.now() - at, raw: bytes };
   } catch (error) {
     return { error: String(error.message).slice(0, 120), elapsed: Date.now() - at };

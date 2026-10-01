@@ -223,15 +223,28 @@
     return value;
   }
 
+  /// 顶层二进制统一成字节视图。判据与 Breeze 的 encodeHostData 一致：
+  /// Uint8Array / ArrayBuffer / 任意 ArrayBuffer 视图（Buffer、DataView、
+  /// 其他 TypedArray 都算），少判一类插件就会返回一个「看起来像 JSON」的
+  /// 对象，宿主侧只能报「没有返回二进制数据」。
+  function asBinaryBytes(value) {
+    if (value instanceof Uint8Array) return value;
+    if (value instanceof ArrayBuffer) return new Uint8Array(value);
+    if (ArrayBuffer.isView(value)) {
+      return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+    }
+    return null;
+  }
+
   /// 出参序列化：顶层二进制用 Base64 信封，其余走普通 JSON
   function safeStringify(value) {
     if (value === undefined) return "null";
-    if (value instanceof Uint8Array) {
-      return JSON.stringify({ __ibreezeBinary: bytesToBase64(value) });
+
+    var binary = asBinaryBytes(value);
+    if (binary) {
+      return JSON.stringify({ __ibreezeBinary: bytesToBase64(binary) });
     }
-    if (value instanceof ArrayBuffer) {
-      return JSON.stringify({ __ibreezeBinary: bytesToBase64(new Uint8Array(value)) });
-    }
+
     try {
       return JSON.stringify(value);
     } catch (error) {

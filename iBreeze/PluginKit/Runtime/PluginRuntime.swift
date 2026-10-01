@@ -258,7 +258,9 @@ final class PluginRuntime: @unchecked Sendable {
               let base64 = object["__ibreezeBinary"] as? String,
               let bytes = Data(base64Encoded: base64)
         else {
-            throw PluginError.pluginThrew("插件没有返回二进制数据")
+            // 带上返回片段：插件返回的既可能是普通错误对象，也可能是宿主没认出来的
+            // 二进制形状（信封缺失时只报「没有返回二进制数据」根本没法定位）
+            throw PluginError.pluginThrew("插件没有返回二进制数据：\(json.prefix(240))")
         }
         return bytes
     }
