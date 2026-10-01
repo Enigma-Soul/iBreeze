@@ -163,6 +163,9 @@ struct HomeView: View {
         case .page(let page):
             ScrollView {
                 LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
+                    // 功能页也是首页的一部分，阅读记录同样要在这里
+                    ContinueReadingStrip()
+
                     Section {
                         VStack(alignment: .leading, spacing: 0) {
                             Text(page.title)

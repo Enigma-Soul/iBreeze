@@ -34,6 +34,8 @@ struct RootView: View {
                 .animation(.snappy(duration: 0.25), value: isTabBarHidden)
         }
         .observesFloatingTabBarVisibility { isHiddenByChildPage = $0 }
+        // 提示叠在最上层右上角：比起强制弹窗，它不打断正在做的事
+        .overlay { ToastHost() }
         .sheet(isPresented: $showsSettings) {
             NavigationStack { SettingsView() }
         }

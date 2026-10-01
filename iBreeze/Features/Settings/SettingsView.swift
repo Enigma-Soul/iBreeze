@@ -13,7 +13,6 @@ struct SettingsView: View {
     @AppStorage(SettingsKey.imageTimeoutSeconds) private var imageTimeout = ImageSettings.defaultTimeoutSeconds
 
     @State private var pendingAction: DataAction?
-    @State private var resultMessage: String?
     @State private var isTestingProxy = false
     @State private var proxyTestResult: ProxyTestResult?
 
@@ -56,11 +55,6 @@ struct SettingsView: View {
                 Task { await perform(action) }
             }
         }
-        .alert("完成", isPresented: Binding(get: { resultMessage != nil }, set: { if !$0 { resultMessage = nil } })) {
-            Button("好", role: .cancel) {}
-        } message: {
-            Text(resultMessage ?? "")
-        }
         .alert(item: $proxyTestResult) { result in
             Alert(
                 title: Text(result.title),
@@ -89,7 +83,8 @@ struct SettingsView: View {
         case .clearHistory:
             ReadingHistoryStore.shared.clear()
         }
-        resultMessage = "已\(action.rawValue)"
+        // 用气泡而不是弹窗：这种「做完了」不该让用户再点一次「好」
+        ToastCenter.shared.show("已\(action.rawValue)")
     }
 
     private var appearanceSection: some View {

@@ -111,6 +111,7 @@ final class PluginSettingsViewModel {
             let source = try await PluginRegistry.shared.source(for: plugin.uuid)
             _ = try await source.perform(fnPath: signOutPath)
             errorMessage = nil
+            ToastCenter.shared.show("已退出登录")
         } catch {
             errorMessage = error.localizedDescription
         }
