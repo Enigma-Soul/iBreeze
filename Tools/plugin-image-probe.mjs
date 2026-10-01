@@ -5,8 +5,13 @@
 //
 // 依赖本机代理（HTTP_PROXY / HTTPS_PROXY），运行时内核与 App 共用同一套 JS 层。
 
-import { writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createRuntime } from "./lib/plugin-runtime.mjs";
+
+/// 墙内拉一次插件要十几分钟，缓存下来下次直接复用
+const CACHE_DIR = join(dirname(fileURLToPath(import.meta.url)), ".cache");
 
 /// 与 PluginInstaller.cdnMirrors / gitHubProxies 一致
 const MIRRORS = [
@@ -16,6 +21,7 @@ const MIRRORS = [
   "https://jsd.onmicrosoft.cn/",
   "https://www.webcache.cn/",
 ];
+// 加速前缀排在直连之前：直连 github.com 在墙内会一直卡到超时
 const GH_PROXIES = ["https://ghfast.top/", "https://gh-proxy.com/"];
 
 const TARGETS = {
@@ -53,6 +59,12 @@ async function fetchText(url) {
 }
 
 async function downloadBundle() {
+  const cachePath = join(CACHE_DIR, `${targetName}.bundle.cjs`);
+  if (existsSync(cachePath)) {
+    mark("使用缓存插件", cachePath);
+    return readFileSync(cachePath, "utf8");
+  }
+
   const asset = `${target.npmName}.bundle.cjs`;
   const candidates = MIRRORS.map((mirror) => `${mirror}npm/${target.npmName}@latest/dist/${asset}`);
 
@@ -60,8 +72,8 @@ async function downloadBundle() {
   const release = await fetchText(target.updateUrl).then(JSON.parse).catch(() => null);
   const releaseAsset = (release?.assets ?? []).find((item) => item.name === asset);
   if (releaseAsset) {
-    candidates.push(releaseAsset.browser_download_url);
     for (const proxy of GH_PROXIES) candidates.push(proxy + releaseAsset.browser_download_url);
+    candidates.push(releaseAsset.browser_download_url);
   }
 
   const failures = [];
@@ -69,6 +81,8 @@ async function downloadBundle() {
     try {
       const bundle = await fetchText(url);
       mark("下载插件", url);
+      mkdirSync(CACHE_DIR, { recursive: true });
+      writeFileSync(cachePath, bundle);
       return bundle;
     } catch (error) {
       failures.push(`${new URL(url).host} ${error.message}`);
@@ -88,10 +102,6 @@ mark("装载完成");
 
 const info = parse(await runtime.invoke("getInfo"));
 mark("getInfo", `v${info.version}`);
-
-if (typeof info.init === "function" || info.hasInit) {
-  /* 插件把 init 暴露在导出上时由 __invokePlugin 直接调 */
-}
 
 async function invoke(fnPath, payload = {}) {
   const at = Date.now();
@@ -120,11 +130,11 @@ if (items.length === 0) throw new Error("列表为空，无法继续");
 const item = items[0];
 console.log(`          首项：${item.title ?? item.name ?? "?"} id=${item.id ?? item.comicId ?? "?"}`);
 
-// 2. 详情
+// 2. 详情：章节在 `data.normal.eps`（与 ComicDetailResult.Normal.eps 一致）
 const comicId = String(item.id ?? item.comicId ?? "");
 const detail = await invoke("getComicDetail", { comicId, extern: item.extern ?? {} });
 const detailBody = parse(detail.raw);
-const chapters = detailBody.data?.chapters ?? detailBody.chapters ?? [];
+const chapters = detailBody.data?.normal?.eps ?? detailBody.data?.chapters ?? detailBody.chapters ?? [];
 mark("详情", `${chapters.length} 章 / ${detail.elapsed}ms`);
 if (chapters.length === 0) throw new Error("详情没有章节");
 
@@ -141,8 +151,8 @@ const pages = snapshotBody.data?.chapter?.pages ?? snapshotBody.chapter?.pages ?
 mark("章节", `${pages.length} 页 / ${snapshot.elapsed}ms`);
 if (pages.length === 0) throw new Error("章节没有页面");
 
-// 4. 逐页取图：前 3 页，记录每页耗时与字节数
-for (const [index, page] of pages.slice(0, 3).entries()) {
+// 4. 取图：先顺序 3 页，再并发 6 页（App 里阅读页一次预取 7 页，就是这个形态）
+async function fetchPage(page) {
   const at = Date.now();
   try {
     const raw = await runtime.invoke("fetchImageBytes", {
@@ -151,17 +161,36 @@ for (const [index, page] of pages.slice(0, 3).entries()) {
       taskGroupKey: "",
       extern: page.extern ?? {},
     });
-    const body = parse(raw);
-    const bytes = body.__ibreezeBinary ?? body.data ?? null;
-    const size = typeof bytes === "string" ? Math.floor((bytes.length * 3) / 4) : 0;
-    mark(`取图 #${index + 1}`, `${size} 字节 / ${Date.now() - at}ms url=${String(page.url).slice(0, 70)}`);
-    if (index === 0 && typeof bytes === "string") {
-      writeFileSync(`probe-${targetName}-1.bin`, Buffer.from(bytes, "base64"));
-      mark("已落盘", `probe-${targetName}-1.bin`);
-    }
+    const bytes = parse(raw).__ibreezeBinary ?? null;
+    if (typeof bytes !== "string") throw new Error("返回值里没有二进制信封");
+    return { size: Math.floor((bytes.length * 3) / 4), elapsed: Date.now() - at, raw: bytes };
   } catch (error) {
-    mark(`取图 #${index + 1} 失败`, `${Date.now() - at}ms ${String(error.message).slice(0, 160)}`);
+    return { error: String(error.message).slice(0, 120), elapsed: Date.now() - at };
   }
+}
+
+for (const [index, page] of pages.slice(0, 3).entries()) {
+  const result = await fetchPage(page);
+  mark(
+    result.error ? `顺序取图 #${index + 1} 失败` : `顺序取图 #${index + 1}`,
+    result.error ?? `${result.size} 字节 / ${result.elapsed}ms`
+  );
+  if (index === 0 && result.raw) {
+    mkdirSync(CACHE_DIR, { recursive: true });
+    const path = join(CACHE_DIR, `${targetName}-page1.bin`);
+    writeFileSync(path, Buffer.from(result.raw, "base64"));
+    mark("已落盘", path);
+  }
+}
+
+const batchStart = Date.now();
+const batch = await Promise.all(pages.slice(0, 6).map(fetchPage));
+mark("并发取图 6 页", `共 ${Date.now() - batchStart}ms`);
+for (const [index, result] of batch.entries()) {
+  mark(
+    `  └ #${index + 1}`,
+    result.error ?? `${result.size} 字节 / ${result.elapsed}ms`
+  );
 }
 
 mark("结束");
