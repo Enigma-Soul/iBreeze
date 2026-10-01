@@ -65,18 +65,23 @@ final class HomeViewModel {
         selectedEntryID = nil
 
         guard let source = selectedSource else { return }
-        entries = source.functions.filter { isSupported($0) }
+
+        // 云端收藏要先问插件有没有实现，不然点了只会得到一句报错，等于死路
+        let plugin = try? await registry.source(for: source.uuid)
+        let supportsCloudFavorite = await plugin?.exportsFunction("getCloudFavoriteSceneBundle") ?? false
+
+        entries = source.functions.filter { isSupported($0, supportsCloudFavorite: supportsCloudFavorite) }
 
         guard let first = entries.first else { return }
         selectedEntryID = first.id
         await loadSelectedEntry()
     }
 
-    private func isSupported(_ entry: PluginFunctionItem) -> Bool {
+    private func isSupported(_ entry: PluginFunctionItem, supportsCloudFavorite: Bool) -> Bool {
         switch entry.action.type {
         case "openComicList": entry.action.payload?.scene?.request != nil
         case "openPluginFunction": !(entry.action.payload?.id ?? "").isEmpty
-        case "openCloudFavorite": true
+        case "openCloudFavorite": supportsCloudFavorite
         default: false
         }
     }
@@ -94,17 +99,7 @@ final class HomeViewModel {
                 content = .unsupported("该入口没有取数信息")
                 return
             }
-            let list = ComicListViewModel(
-                sourceID: sourceID,
-                fnPath: request.fnPath,
-                core: request.core,
-                extern: request.extern,
-                filterFnPath: scene.filter?.fnPath
-            )
-            content = .list(list)
-
-            await list.loadFilterIfNeeded()
-            await list.loadMore()
+            await showList(scene: scene, request: request, sourceID: sourceID)
 
         case "openPluginFunction":
             guard let pageID = entry.action.payload?.id, !pageID.isEmpty else {
@@ -116,10 +111,37 @@ final class HomeViewModel {
             await page.load()
 
         case "openCloudFavorite":
-            content = .unsupported("云端收藏暂未支持，收藏请用详情页的心形按钮")
+            // 场景由宿主按契约去问插件要，结构与列表入口同源，所以能直接复用列表
+            do {
+                let source = try await registry.source(for: sourceID)
+                let scene = try await source.cloudFavoriteScene()
+                guard let request = scene.request else {
+                    content = .unsupported("云端收藏没有提供取数信息")
+                    return
+                }
+                await showList(scene: scene, request: request, sourceID: sourceID)
+            } catch {
+                content = .unsupported(error.localizedDescription)
+            }
 
         default:
             content = .unsupported("暂不支持的入口：\(entry.action.type)")
         }
+    }
+
+    private func showList(scene: ComicListScene, request: ComicListScene.Request, sourceID: String) async {
+        let list = ComicListViewModel(
+            sourceID: sourceID,
+            fnPath: request.fnPath,
+            core: request.core,
+            extern: request.extern,
+            filterFnPath: scene.filter?.fnPath,
+            filterCore: scene.filter?.core,
+            filterExtern: scene.filter?.extern
+        )
+        content = .list(list)
+
+        await list.loadFilterIfNeeded()
+        await list.loadMore()
     }
 }

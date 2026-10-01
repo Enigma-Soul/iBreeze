@@ -217,6 +217,36 @@ struct PluginWebRuntimeTests {
     }
 }
 
+/// 云端收藏：宿主不自己拼列表，而是按契约问插件要场景再复用列表页
+@Suite("云端收藏场景")
+struct CloudFavoriteSceneTests {
+    /// 哔咔 `getCloudFavoriteSceneBundle` 的真实返回
+    private static let bikaBundle = #"""
+    {"source":"0a0e5858-a467-4702-994a-79e608a4589d","scheme":{"version":"1.0.0","type":"comicListSceneBundle"},
+     "data":{"scene":{"title":"云端收藏","source":"0a0e5858-a467-4702-994a-79e608a4589d",
+       "body":{"type":"pluginPagedComicList","request":{"fnPath":"getFavoriteData","core":{},"extern":{"source":"cloudFavorite","sort":"dd"}}},
+       "filter":{"fnPath":"getCloudFavoriteFilterBundle","extern":{"source":"cloudFavorite"}}}}}
+    """#
+
+    @Test("解出取数请求与筛选器")
+    func decodesScene() throws {
+        let bundle = try JSONDecoder().decode(JSONValue.self, from: Data(Self.bikaBundle.utf8))
+        let sceneValue = try #require(bundle["data"]?["scene"])
+        let scene = try JSONDecoder().decode(
+            ComicListScene.self,
+            from: try JSONEncoder().encode(sceneValue)
+        )
+
+        #expect(scene.title == "云端收藏")
+        #expect(scene.request?.fnPath == "getFavoriteData")
+        #expect(scene.request?.extern?["source"]?.stringValue == "cloudFavorite")
+
+        // 筛选器也得带上它自己的 extern，否则插件认不出是哪张列表的筛选器
+        #expect(scene.filter?.fnPath == "getCloudFavoriteFilterBundle")
+        #expect(scene.filter?.extern?["source"]?.stringValue == "cloudFavorite")
+    }
+}
+
 @Suite("简繁转换")
 struct ChineseConverterTests {
     @Test("按 opencc 配置名转换")

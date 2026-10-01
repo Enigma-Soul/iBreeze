@@ -14,7 +14,9 @@ enum PluginActionRouter {
                 title: scene.title,
                 core: request.core,
                 extern: request.extern,
-                filterFnPath: scene.filter?.fnPath
+                filterFnPath: scene.filter?.fnPath,
+                filterCore: scene.filter?.core,
+                filterExtern: scene.filter?.extern
             )
 
         case "openComicDetail":

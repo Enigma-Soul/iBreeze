@@ -6,6 +6,7 @@ import SwiftUI
 /// 源 = 已安装插件，入口 = 插件声明的「最新 / 热门 / 排行 / 导航」等。
 struct HomeView: View {
     @Environment(PluginRegistry.self) private var registry
+    @Environment(TabBarVisibility.self) private var tabBar
     @State private var viewModel = HomeViewModel()
 
     var body: some View {
@@ -22,6 +23,9 @@ struct HomeView: View {
         .onChange(of: registry.installed.map(\.uuid)) { _, _ in
             Task { await viewModel.reload() }
         }
+        // 换入口后内容可能不是可滚动列表（暂不支持、加载中），此时没人上报滚动位置，
+        // 标签栏会停在上一屏隐藏的状态里让人出不去
+        .onChange(of: viewModel.selectedEntryID) { _, _ in tabBar.reset() }
     }
 
     // MARK: - 顶部

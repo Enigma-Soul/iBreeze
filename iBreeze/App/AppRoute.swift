@@ -9,7 +9,9 @@ enum AppRoute: Hashable {
         title: String,
         core: JSONValue?,
         extern: JSONValue?,
-        filterFnPath: String?
+        filterFnPath: String?,
+        filterCore: JSONValue?,
+        filterExtern: JSONValue?
     )
     /// 漫画详情
     case comicDetail(sourceID: String, comicID: String)
@@ -26,14 +28,16 @@ extension View {
     func appNavigationDestinations() -> some View {
         navigationDestination(for: AppRoute.self) { route in
             switch route {
-            case .comicList(let sourceID, let fnPath, let title, let core, let extern, let filterFnPath):
+            case .comicList(let sourceID, let fnPath, let title, let core, let extern, let filterFnPath, let filterCore, let filterExtern):
                 ComicListPage(
                     sourceID: sourceID,
                     fnPath: fnPath,
                     title: title,
                     core: core,
                     extern: extern,
-                    filterFnPath: filterFnPath
+                    filterFnPath: filterFnPath,
+                    filterCore: filterCore,
+                    filterExtern: filterExtern
                 )
 
             case .comicDetail(let sourceID, let comicID):

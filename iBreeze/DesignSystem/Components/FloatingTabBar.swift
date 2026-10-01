@@ -2,11 +2,17 @@ import SwiftUI
 
 /// 悬浮玻璃标签栏：三个主标签合成一条，设置单独一颗圆钮放在最右。
 ///
-/// 不用系统 TabView 是为了让它在滚动中隐藏、并保持液态玻璃质感；
-/// 代价是要自己补上无障碍标签与 44pt 点按区域。
+/// 外观照着系统标签栏（Pixiv-SwiftUI 用的就是原生 TabView）做：选中项的图标
+/// 落在一条随动的高亮胶囊里，未选中项只有图标与浅色文字。不用原生 TabView
+/// 是因为要随滚动隐藏、还要把设置拆成独立一颗；代价是得自己补无障碍与点按区域。
 struct FloatingTabBar: View {
     @Binding var selection: AppTab
     let onSettings: () -> Void
+
+    /// 高亮胶囊在标签之间滑动
+    @Namespace private var highlight
+
+    private static let barHeight: CGFloat = 56
 
     var body: some View {
         HStack(spacing: 10) {
@@ -17,21 +23,22 @@ struct FloatingTabBar: View {
     }
 
     private var tabs: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: 0) {
             ForEach(AppTab.allCases) { tab in
                 button(for: tab)
             }
         }
         .padding(.horizontal, 6)
-        .frame(height: 54)
+        .frame(height: Self.barHeight)
         .glassSurface(in: Capsule())
     }
 
     private var settingsButton: some View {
         Button(action: onSettings) {
             Image(systemName: "gearshape")
-                .font(.system(size: 17))
-                .frame(width: 54, height: 54)
+                .font(.system(size: 18, weight: .regular))
+                .foregroundStyle(.secondary)
+                .frame(width: Self.barHeight, height: Self.barHeight)
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
@@ -43,16 +50,26 @@ struct FloatingTabBar: View {
         let isSelected = selection == tab
 
         return Button {
-            withAnimation(.snappy(duration: 0.2)) { selection = tab }
+            guard !isSelected else { return }
+            withAnimation(.snappy(duration: 0.25)) { selection = tab }
         } label: {
-            VStack(spacing: 2) {
+            VStack(spacing: 3) {
                 Image(systemName: isSelected ? tab.selectedSystemImage : tab.systemImage)
-                    .font(.system(size: 16, weight: isSelected ? .semibold : .regular))
+                    .font(.system(size: 17, weight: .medium))
+                    .frame(width: 40, height: 26)
+                    .background {
+                        if isSelected {
+                            Capsule()
+                                .fill(Color.accentColor.opacity(0.18))
+                                .matchedGeometryEffect(id: "tabHighlight", in: highlight)
+                        }
+                    }
+
                 Text(tab.title)
-                    .font(.system(size: 10))
+                    .font(.system(size: 10, weight: isSelected ? .semibold : .regular))
             }
             .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
-            .frame(maxWidth: .infinity, minHeight: 44)
+            .frame(minWidth: 64, minHeight: 44)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

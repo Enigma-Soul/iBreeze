@@ -20,6 +20,8 @@ final class ComicListViewModel {
     private let baseCore: JSONValue?
     private let baseExtern: JSONValue?
     private let filterFnPath: String?
+    private let filterCore: JSONValue?
+    private let filterExtern: JSONValue?
 
     private var selectedFilterResult: FilterBundle.Option.Result?
     private var loadedPages = 0
@@ -29,13 +31,17 @@ final class ComicListViewModel {
         fnPath: String,
         core: JSONValue?,
         extern: JSONValue?,
-        filterFnPath: String? = nil
+        filterFnPath: String? = nil,
+        filterCore: JSONValue? = nil,
+        filterExtern: JSONValue? = nil
     ) {
         self.sourceID = sourceID
         self.fnPath = fnPath
         self.baseCore = core
         self.baseExtern = extern
         self.filterFnPath = filterFnPath
+        self.filterCore = filterCore
+        self.filterExtern = filterExtern
     }
 
     var hasFilter: Bool { !filterOptions.isEmpty }
@@ -76,7 +82,11 @@ final class ComicListViewModel {
 
         do {
             let source = try await PluginRegistry.shared.source(for: sourceID)
-            let bundle = try await source.filterBundle(fnPath: filterFnPath)
+            let bundle = try await source.filterBundle(
+                fnPath: filterFnPath,
+                core: filterCore,
+                extern: filterExtern
+            )
             filterTitle = bundle.primaryField?.label ?? bundle.scheme?.title
             filterOptions = bundle.primaryField?.options ?? []
         } catch {

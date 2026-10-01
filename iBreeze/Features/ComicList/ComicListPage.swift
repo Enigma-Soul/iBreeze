@@ -8,6 +8,8 @@ struct ComicListPage: View {
     let core: JSONValue?
     let extern: JSONValue?
     let filterFnPath: String?
+    let filterCore: JSONValue?
+    let filterExtern: JSONValue?
 
     @State private var viewModel: ComicListViewModel
 
@@ -17,7 +19,9 @@ struct ComicListPage: View {
         title: String,
         core: JSONValue?,
         extern: JSONValue?,
-        filterFnPath: String?
+        filterFnPath: String?,
+        filterCore: JSONValue? = nil,
+        filterExtern: JSONValue? = nil
     ) {
         self.sourceID = sourceID
         self.fnPath = fnPath
@@ -25,12 +29,16 @@ struct ComicListPage: View {
         self.core = core
         self.extern = extern
         self.filterFnPath = filterFnPath
+        self.filterCore = filterCore
+        self.filterExtern = filterExtern
         _viewModel = State(initialValue: ComicListViewModel(
             sourceID: sourceID,
             fnPath: fnPath,
             core: core,
             extern: extern,
-            filterFnPath: filterFnPath
+            filterFnPath: filterFnPath,
+            filterCore: filterCore,
+            filterExtern: filterExtern
         ))
     }
 

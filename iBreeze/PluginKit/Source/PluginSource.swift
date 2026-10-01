@@ -106,13 +106,33 @@ final class PluginSource: @unchecked Sendable {
         return try JSONDecoder().decode(FunctionPage.self, from: data)
     }
 
-    /// 列表筛选器
-    func filterBundle(fnPath: String) async throws -> FilterBundle {
-        let json = try await runtime.invoke(fnPath: fnPath)
+    /// 列表筛选器。
+    ///
+    /// `core`/`extern` 来自场景里的 filter 声明：插件靠它们区分是哪张列表的筛选器
+    /// （哔咔的排行榜与云端收藏都各自带一份 `extern.source`）。
+    func filterBundle(fnPath: String, core: JSONValue? = nil, extern: JSONValue? = nil) async throws -> FilterBundle {
+        var payload = (core?.anyValue as? [String: Any]) ?? [:]
+        if let extern { payload["extern"] = extern.anyValue }
+
+        let json = try await runtime.invoke(
+            fnPath: fnPath,
+            payloadJSON: payload.isEmpty ? "{}" : try Self.json(payload)
+        )
         guard let data = json.data(using: .utf8) else {
             throw PluginError.invalidPayload("筛选器返回值不是合法 UTF-8")
         }
         return try JSONDecoder().decode(FilterBundle.self, from: data)
+    }
+
+    /// 云端收藏：宿主按契约问插件要场景，拿到的结构与列表入口同源
+    func cloudFavoriteScene() async throws -> ComicListScene {
+        let bundle = try await invokeJSON(fnPath: "getCloudFavoriteSceneBundle")
+        guard let scene = bundle["data"]?["scene"] ?? bundle["scene"] else {
+            throw PluginError.invalidPayload("云端收藏没有返回列表场景")
+        }
+
+        let data = try JSONEncoder().encode(scene)
+        return try JSONDecoder().decode(ComicListScene.self, from: data)
     }
 
     /// 高级搜索筛选项
@@ -128,9 +148,14 @@ final class PluginSource: @unchecked Sendable {
 
     // MARK: - 登录
 
+    /// 插件是否实现了某个可选 fnPath（宿主用来决定要不要露出对应入口）
+    func exportsFunction(_ name: String) async -> Bool {
+        await runtime.exportsFunction(name)
+    }
+
     /// 插件是否声明了登录能力
     func supportsLogin() async -> Bool {
-        await runtime.exportsFunction("getLoginBundle")
+        await exportsFunction("getLoginBundle")
     }
 
     /// 插件声明的登录表单（`scheme`），没实现登录的插件会抛「未实现」
