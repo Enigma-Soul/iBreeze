@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-An iOS comic reader whose UI follows Pixiv-SwiftUI and whose core is a **from-scratch Swift
+An iOS comic reader whose UI follows EhViewer-Apple and whose core is a **from-scratch Swift
 reimplementation of Breeze's plugin system**. Breeze itself is a Flutter/Rust/QuickJS app
 (plugins are TypeScript → single-file `.cjs` bundles distributed via npm/jsDelivr and GitHub
 Releases); none of its code runs here — only its **plugin contract** does, so existing Breeze
@@ -26,6 +26,13 @@ There is no local macOS toolchain — **CI is the build**. Push to `develop` and
 git push origin develop    # macos-26 → xcodegen → xcodebuild test → unsigned iPA artifact
 gh run watch               # or: gh run view <id> --log-failed
 ```
+
+`.github/workflows/build.yml` also has a `release` job that fires **only on a push to `main`**
+(i.e. when a `develop → main` PR is merged): it tags `v<version>` from the top of `CHANGELOG.md`,
+cuts that block out as the release body, and attaches the ipa. Opening or updating the PR does
+not release, and an already-existing tag makes the job skip. The build job passes
+`MARKETING_VERSION` (from the CHANGELOG) and `CURRENT_PROJECT_VERSION` (= run number) to
+xcodebuild, so the ipa's version always matches the tag.
 
 With Xcode available:
 
@@ -51,11 +58,16 @@ JS-layer work can be verified **without a Mac** — the harness boots the same i
 bare `node:vm` context that mimics JavaScriptCore (no web globals):
 
 ```
-node Tools/plugin-js-harness.mjs                                 # 50 self-checks
+node Tools/plugin-js-harness.mjs                                 # 54 self-checks
 node Tools/plugin-js-harness.mjs <bundle.cjs> <fnPath> '[json]'  # drive a real plugin bundle
 node Tools/plugin-matrix.mjs [--net]                             # check every plugin in the catalogue
+node Tools/plugin-image-probe.mjs <target>                       # list → detail → chapter → images
+node Tools/plugin-login-probe.mjs <target>                       # login exports + unauthorized shape
 node Tools/prepare-app-icon.mjs <source.png>                     # 1024px icon, alpha stripped
 ```
+
+The two probes cache the downloaded bundle under `Tools/.cache/` (gitignored) and need
+`HTTP_PROXY`/`HTTPS_PROXY` pointing at a working proxy for real-network runs.
 
 The harness re-execs itself with `NODE_USE_ENV_PROXY=1` when `HTTP_PROXY` is set (Node's `fetch`
 ignores it otherwise), so real-network runs work behind a local proxy. Use it before pushing
@@ -109,6 +121,27 @@ through `PluginSource.imageBytes` via `ComicImageLoader` (memory + disk, keyed b
 `PluginImageView`. Plugin-declared settings are rendered generically by `PluginSettingsView` from
 `getSettingsBundle`, and any user-facing text from a plugin is passed through `.convertedChinese`.
 
+The tab bar is a plain system `TabView` (`RootView`, four tabs). A pushed page hides it with
+`.hidesFloatingTabBar()`, which is now just `.toolbar(.hidden, for: .tabBar)`. `minimizesTabBarOnScroll()`
+in `DesignSystem/GlassStyle.swift` wraps `tabBarMinimizeBehavior(.onScrollDown)` for iOS 26.
+
+Feedback has two tiers, and picking the right one matters:
+
+- **`ToastCenter` / `ToastHost`** — top-right bubbles, max 2 on screen, 3 s each, with an optional
+  action and a close button. Use for "done" results (cache cleared, signed out) and for
+  *non-blocking* notices. `PluginLoginCenter` raises a login toast rather than forcing a sheet.
+- **Sheets / alerts** — only when the user must decide or type something (the login form itself,
+  the proxy test result, destructive confirmations).
+
+Transient failures inside a list go through `ComicResultList.emptyState` (a slot rendered at the
+top of the content area) — not an `.overlay`, which centres on the whole scroll frame and ends up
+looking like it floats mid-screen behind a pinned header.
+
+Plugin-declared pages and lists are host-driven: `HomeViewModel` maps each entry's `action.type`
+to a page. `openCloudFavorite` asks the plugin for `getCloudFavoriteSceneBundle` and reuses the
+normal list path, so it needs no special UI. `PluginActionRouter` does the same mapping for chips
+and cards inside function pages.
+
 ## Gotchas (hard-won)
 
 - **Plugin JS must run on `PluginRuntimeThread` (16 MB stack).** With GCD's default worker stack,
@@ -129,12 +162,19 @@ through `PluginSource.imageBytes` via `ComicImageLoader` (memory + disk, keyed b
   loads a dozen covers). Dispatching the callback by "whoever installed last wins" orphans every
   earlier waiter — images spin forever. The same applies to `PluginRegistry.source(for:)`, which
   must not build a second JSContext while the first is still loading.
+- **Plugin errors can be structured JSON in disguise.** Plugins express "log in" with
+  `throw new Error(JSON.stringify(payload))`, and the JS shim appends ` {frame ← frame}` before
+  Swift sees it — so the string is *not* valid JSON as-is. `PluginError.fromPluginPayload` scans
+  for the first brace-balanced object and returns `.unauthorized`; anything else stays
+  `.pluginThrew`. Do not `JSON.parse` the raw message.
 - **`extern` round-trips**: whatever a plugin returns as `extern` must be sent back on the next
-  call in the same context.
+  call in the same context. That includes the scene's `filter.core` / `filter.extern` — plugins
+  use them to tell which list a filter belongs to (Bika's ranking and cloud favourites each carry
+  their own `extern.source`).
 - Contract models are deliberately lenient (`JSONValue`, optionals) — real plugins deviate from
   the docs, so make decoding tolerant instead of strict.
 - Deployment target is iOS 18; Liquid Glass APIs (`glassEffect`, `tabBarMinimizeBehavior`) are
-  iOS 26-only and must stay behind `if #available(iOS 26.0, *)` — see `glassSurface`.
+  iOS 26-only and must stay behind `if #available(iOS 26.0, *)` — see `DesignSystem/GlassStyle.swift`.
 
 ## Conventions
 
@@ -144,6 +184,10 @@ through `PluginSource.imageBytes` via `ComicImageLoader` (memory + disk, keyed b
 - One type per file; `@MainActor @Observable` for view models and stores.
 - Work on `develop` only. `main` receives PRs **from `develop`** — never push to `main` directly.
   Before opening a PR, lay out how many PRs and what each contains, then wait for confirmation.
+- `CHANGELOG.md` is the **version source of truth** — the top `# x.y.z` heading drives both the
+  ipa's `MARKETING_VERSION` and the release tag. Bump it in the same PR that ships the change;
+  one `develop → main` PR should add exactly one version block, or the release for the earlier
+  PR wins the tag and the later one is skipped.
 - Release notes follow the owner's CHANGELOG format (newest version block on top, grouped by
   `### Feat(scope)` / `### Fix(scope)` / `### Refactor` / `### Chore`, Chinese bullets that say
   what changed for the user rather than a per-file diff).

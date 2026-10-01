@@ -1,4 +1,4 @@
-<img src="iBreeze/Resources/Assets.xcassets/AppIcon.appiconset/icon-1024.png" width="120" alt="iBreeze 图标">
+<img src="Docs/icon-512.png" width="120" alt="iBreeze 图标">
 
 # iBreeze
 
@@ -29,8 +29,10 @@ Breeze 生态里现成的插件不用改一行代码就能装进来用。
 
 **界面**
 
-- 悬浮玻璃标签栏，滚动时收起；iOS 26 上使用液态玻璃，低版本回退毛玻璃
-- 首页即数据源切换：插件图标作源标签，插件声明的入口（最新 / 热门 / 排行）作筛选
+- 系统标签栏：首页 / 搜索 / 收藏 / 设置，iOS 26 上随列表下滚自动收起
+- 首页即数据源切换：插件图标作源标签，插件声明的入口（最新 / 热门 / 排行 / 云端收藏）作筛选，
+  「继续阅读」随列表滚走、入口选项卡滑到顶后钉住
+- 提示走右上角气泡（带关闭按钮），登录过期只提示不打断
 - 简繁自动转换、深浅色主题、HTTP / SOCKS5 代理
 
 ## 快速开始
@@ -109,7 +111,8 @@ node Tools/prepare-app-icon.mjs <源图>                            # 生成 App
 ## 已知限制
 
 - `image.crop_by_regions`（长条图切分）与 `gzip` 尚未实现，个别插件的特殊图源会受影响
-- 插件的云端收藏工作流（`startFavoriteAction`）未接，收藏目前只存在本地
+- 云端收藏只能**看**：列表页已接通（`getCloudFavoriteSceneBundle`），但收藏到指定文件夹、
+  云端收藏夹管理（`startFavoriteAction` / `moveFavoriteToFolder`）还没做
 - iOS 对 HTTP 代理的支持度依赖系统版本，SOCKS5 更可靠
 - 阅读器的双页模式、亮度调节、音量键翻页尚未实现
 

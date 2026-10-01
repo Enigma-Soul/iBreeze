@@ -79,7 +79,6 @@ final class PluginManagerViewModel {
 /// 插件管理：已安装列表、云端安装、网络安装
 struct PluginManagerView: View {
     @State private var viewModel = PluginManagerViewModel()
-    @State private var pendingRemoval: InstalledPlugin?
 
     var body: some View {
         List {
@@ -98,17 +97,6 @@ struct PluginManagerView: View {
         .navigationTitle("插件管理")
         .navigationBarTitleDisplayMode(.inline)
         .task { await viewModel.loadCloudPlugins() }
-        .confirmationDialog(
-            "确定卸载「\(pendingRemoval?.name ?? "")」？",
-            isPresented: Binding(get: { pendingRemoval != nil }, set: { if !$0 { pendingRemoval = nil } }),
-            titleVisibility: .visible
-        ) {
-            Button("卸载", role: .destructive) {
-                guard let plugin = pendingRemoval else { return }
-                pendingRemoval = nil
-                Task { await viewModel.uninstall(plugin) }
-            }
-        }
     }
 
     @ViewBuilder
@@ -156,8 +144,11 @@ struct PluginManagerView: View {
                 .controlSize(.small)
             }
         }
+        // 左滑即卸载，不再二次确认：滑动手势本身就是意图，装回来也就一次点击
         .swipeActions {
-            Button("卸载", role: .destructive) { pendingRemoval = plugin }
+            Button("卸载", role: .destructive) {
+                Task { await viewModel.uninstall(plugin) }
+            }
         }
     }
 
