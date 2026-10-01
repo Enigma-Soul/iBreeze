@@ -70,6 +70,11 @@ module.exports = {
     binary() {
         return new Uint8Array([1, 2, 3, 4]);
     },
+    // 禁漫的 fetchImageBytes 就是这个形状：字节留在缓冲区池里，只回一个 id
+    async nativeBufferEnvelope() {
+        const id = await native.put(new Uint8Array([9, 8, 7, 6]));
+        return { nativeBufferId: Number(id) };
+    },
     async cryptoRoundTrip() {
         return {
             // createHash 走 __crypto_*_bytes 同步钩子，hmacSha256 走 bridge 异步路由
@@ -197,6 +202,10 @@ struct PluginWebRuntimeTests {
 
         let data = try await runtime.invokeData(fnPath: "binary")
         #expect(Array(data) == [1, 2, 3, 4])
+
+        // 禁漫把字节留在缓冲区池、只回 nativeBufferId，宿主必须还原成字节
+        let nativeEnvelope = try await runtime.invokeData(fnPath: "nativeBufferEnvelope")
+        #expect(Array(nativeEnvelope) == [9, 8, 7, 6])
 
         let crypto = try await runtime.invokeObject(fnPath: "cryptoRoundTrip")
         #expect(crypto["digest"] as? String

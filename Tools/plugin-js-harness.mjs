@@ -70,6 +70,11 @@ module.exports = {
   binary() {
     return new Uint8Array([1, 2, 3, 4]);
   },
+  // 禁漫的 fetchImageBytes 就是这个形状：字节留在缓冲区池里，只回一个 id
+  async nativeBufferEnvelope() {
+    const id = await native.put(new Uint8Array([9, 8, 7, 6]));
+    return { nativeBufferId: Number(id) };
+  },
   async cryptoRoundTrip() {
     return {
       digest: crypto.createHash("sha256").update("hello").digest("hex"),
@@ -275,6 +280,15 @@ check("fetch 错误路径", fetchResult.failed === true, JSON.stringify(fetchRes
 
 const binary = JSON.parse(await runtime.invoke("binary"));
 check("二进制信封", typeof binary.__ibreezeBinary === "string" && atob(binary.__ibreezeBinary).length === 4, JSON.stringify(binary));
+
+// 禁漫把字节留在缓冲区池、只回 nativeBufferId，宿主必须还原成字节
+const nativeEnvelope = JSON.parse(await runtime.invoke("nativeBufferEnvelope"));
+check(
+  "nativeBufferId 还原成二进制信封",
+  typeof nativeEnvelope.__ibreezeBinary === "string"
+    && JSON.stringify(Array.from(atob(nativeEnvelope.__ibreezeBinary), (c) => c.charCodeAt(0))) === "[9,8,7,6]",
+  JSON.stringify(nativeEnvelope)
+);
 
 // 并发调用：回调必须按句柄找回自己那一次。顺序打乱（越早发起越晚返回）
 // 正是取图并发的样子，回调若按「最后装入的等待者」分发就会全部错位。

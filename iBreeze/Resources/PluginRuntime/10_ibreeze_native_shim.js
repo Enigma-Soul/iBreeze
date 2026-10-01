@@ -236,11 +236,27 @@
     return null;
   }
 
+  /// 有些插件不直接返回字节，而是把字节留在缓冲区池里、只回一个
+  /// `{ nativeBufferId }`——禁漫的 `fetchImageBytes` 就是这么写的，Breeze 的宿主
+  /// 也正是从这个 id 去原生缓冲区里取图。这里还原成同样的字节视图。
+  function bytesFromBufferEnvelope(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+
+    var id = Number(value.nativeBufferId);
+    if (!Number.isFinite(id) || !buffers.has(id)) return null;
+
+    var bytes = takeBuffer(id);
+    // 插件把缓冲区交出来了（Breeze 的 take 同样是消费语义），取完即释放，
+    // 否则每张图都会在 JS 侧留下一份副本
+    buffers.delete(id);
+    return bytes;
+  }
+
   /// 出参序列化：顶层二进制用 Base64 信封，其余走普通 JSON
   function safeStringify(value) {
     if (value === undefined) return "null";
 
-    var binary = asBinaryBytes(value);
+    var binary = asBinaryBytes(value) || bytesFromBufferEnvelope(value);
     if (binary) {
       return JSON.stringify({ __ibreezeBinary: bytesToBase64(binary) });
     }
