@@ -102,9 +102,11 @@ xcodebuild test -project iBreeze.xcodeproj -scheme iBreeze \
 不依赖 Mac 的本地验证工具（JS 层改动请在推送前跑一遍）：
 
 ```bash
-node Tools/plugin-js-harness.mjs                                  # JS 层自检 50 项
+node Tools/plugin-js-harness.mjs                                  # JS 层自检 54 项
 node Tools/plugin-js-harness.mjs <bundle.cjs> <fnPath> '[json]'   # 直接跑某个插件 bundle
 node Tools/plugin-matrix.mjs [--net]                              # 批量体检插件列表
+node Tools/plugin-image-probe.mjs <插件>                          # 走一遍 列表→详情→章节→取图
+node Tools/plugin-login-probe.mjs <插件>                          # 看登录相关的导出与未授权错误形状
 node Tools/prepare-app-icon.mjs <源图>                            # 生成 App 图标（1024、去 alpha）
 ```
 
