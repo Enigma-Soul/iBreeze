@@ -1,4 +1,6 @@
-<img src="Docs/icon-512.png" width="120" alt="iBreeze 图标">
+<p align="center">
+  <img src="Docs/icon-512.png" width="120" alt="iBreeze 图标">
+</p>
 
 # iBreeze
 
