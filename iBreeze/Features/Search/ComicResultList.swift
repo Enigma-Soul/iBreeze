@@ -64,13 +64,17 @@ extension ComicResultList {
         sourceID: String,
         isLoading: Bool,
         hasReachedMax: Bool,
-        loadMore: @escaping () -> Void
+        loadMore: @escaping () -> Void,
+        leading: AnyView? = nil,
+        pinnedHeader: AnyView? = nil
     ) {
         self.init(
             items: items.map { $0.sourced(from: sourceID) },
             isLoading: isLoading,
             hasReachedMax: hasReachedMax,
-            loadMore: loadMore
+            loadMore: loadMore,
+            leading: leading,
+            pinnedHeader: pinnedHeader
         )
     }
 }
