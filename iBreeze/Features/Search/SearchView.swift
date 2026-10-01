@@ -120,8 +120,7 @@ struct SearchView: View {
                 .padding(.horizontal, AppTheme.Spacing.page)
             }
             .padding(.vertical, 12)
-        }
-        .tracksTabBarVisibility()
+        }
     }
 
     // MARK: - 提交

@@ -26,7 +26,6 @@ struct ComicResultList: View {
                 }
             }
         }
-        .tracksTabBarVisibility()
     }
 
     private var rows: some View {

@@ -41,7 +41,6 @@ struct FavoritesView: View {
             }
             .padding(.horizontal, AppTheme.Spacing.page)
         }
-        .tracksTabBarVisibility()
     }
 
     private func row(for entry: FavoriteEntry) -> some View {
