@@ -48,7 +48,9 @@ struct ComicListPage: View {
             sourceID: sourceID,
             isLoading: viewModel.isLoading,
             hasReachedMax: viewModel.hasReachedMax,
-            loadMore: { Task { await viewModel.loadMore() } }
+            loadMore: { Task { await viewModel.loadMore() } },
+            // 提示排在内容区顶部，不盖成整屏居中的 overlay
+            emptyState: emptyState
         )
         .navigationTitle(title)
         .hidesFloatingTabBar()
@@ -59,7 +61,6 @@ struct ComicListPage: View {
             await viewModel.loadFilterIfNeeded()
             if viewModel.items.isEmpty { await viewModel.loadMore() }
         }
-        .overlay { emptyOverlay }
     }
 
     @ToolbarContentBuilder
@@ -77,14 +78,16 @@ struct ComicListPage: View {
         }
     }
 
-    @ViewBuilder
-    private var emptyOverlay: some View {
-        if viewModel.items.isEmpty, !viewModel.isLoading {
-            if let message = viewModel.errorMessage {
-                ContentUnavailableView("加载失败", systemImage: "exclamationmark.triangle", description: Text(message))
-            } else {
-                ProgressView()
-            }
-        }
+    private var emptyState: AnyView? {
+        guard viewModel.items.isEmpty, !viewModel.isLoading else { return nil }
+
+        guard let message = viewModel.errorMessage else { return AnyView(ProgressView()) }
+        return AnyView(
+            ContentUnavailableView(
+                "加载失败",
+                systemImage: "exclamationmark.triangle",
+                description: Text(message)
+            )
+        )
     }
 }

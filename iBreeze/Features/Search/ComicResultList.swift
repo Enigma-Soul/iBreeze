@@ -10,6 +10,11 @@ struct ComicResultList: View {
     var leading: AnyView? = nil
     /// 滚到顶后钉住的头部（入口选项卡）。首页靠它做到「划到插件图标那一行就固定」
     var pinnedHeader: AnyView? = nil
+    /// 列表为空时显示什么（加载失败、没有结果…）。
+    ///
+    /// 它排在内容区顶部而不是盖成整屏居中的 overlay：后者会跑到固定头部后面，
+    /// 看起来像浮在整屏正中。
+    var emptyState: AnyView? = nil
 
     var body: some View {
         ScrollView {
@@ -17,8 +22,16 @@ struct ComicResultList: View {
                 leading
 
                 Section {
-                    rows
-                        .padding(.horizontal, AppTheme.Spacing.page)
+                    if items.isEmpty, let emptyState {
+                        emptyState
+                            .frame(maxWidth: .infinity)
+                            .padding(.horizontal, AppTheme.Spacing.page)
+                            .padding(.top, 48)
+                    } else {
+                        rows
+                            .padding(.horizontal, AppTheme.Spacing.page)
+                    }
+
                     footer
                 } header: {
                     // 横向内边距留给各行，选项卡条自己带内边距，钉住时才能铺满整宽
@@ -65,7 +78,8 @@ extension ComicResultList {
         hasReachedMax: Bool,
         loadMore: @escaping () -> Void,
         leading: AnyView? = nil,
-        pinnedHeader: AnyView? = nil
+        pinnedHeader: AnyView? = nil,
+        emptyState: AnyView? = nil
     ) {
         self.init(
             items: items.map { $0.sourced(from: sourceID) },
@@ -73,7 +87,8 @@ extension ComicResultList {
             hasReachedMax: hasReachedMax,
             loadMore: loadMore,
             leading: leading,
-            pinnedHeader: pinnedHeader
+            pinnedHeader: pinnedHeader,
+            emptyState: emptyState
         )
     }
 }

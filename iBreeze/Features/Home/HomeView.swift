@@ -48,6 +48,19 @@ struct HomeView: View {
         }
     }
 
+    /// 取数失败时的提示，没有错误就返回 nil（列表自己会显示到底或加载中）
+    private static func loadFailure(_ message: String?) -> AnyView? {
+        guard let message, !message.isEmpty else { return nil }
+
+        return AnyView(
+            ContentUnavailableView(
+                "加载失败",
+                systemImage: "exclamationmark.triangle",
+                description: Text(message)
+            )
+        )
+    }
+
     /// 钉住用的入口选项卡；只有一个入口时返回 nil，列表也就不会启用钉住
     private var pinnedEntryStrip: AnyView? {
         guard viewModel.entries.count > 1 else { return nil }
@@ -147,18 +160,10 @@ struct HomeView: View {
                 hasReachedMax: list.hasReachedMax,
                 loadMore: { Task { await list.loadMore() } },
                 leading: AnyView(ContinueReadingStrip()),
-                pinnedHeader: pinnedEntryStrip
+                pinnedHeader: pinnedEntryStrip,
+                // 取数失败时给出提示，否则点了入口像是没反应
+                emptyState: Self.loadFailure(list.errorMessage)
             )
-            // 取数失败时给出提示，否则点了入口像是没反应
-            .overlay {
-                if list.items.isEmpty, !list.isLoading, let message = list.errorMessage {
-                    ContentUnavailableView(
-                        "加载失败",
-                        systemImage: "exclamationmark.triangle",
-                        description: Text(message)
-                    )
-                }
-            }
 
         case .page(let page):
             ScrollView {

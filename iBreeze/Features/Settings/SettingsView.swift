@@ -206,8 +206,15 @@ struct SettingsView: View {
         Section("关于") {
             LabeledContent("版本", value: Self.appVersion)
             LabeledContent("插件内核", value: "Breeze")
+
+            // 项目主页在 Enigma-Soul 名下，不是当前用来跑 CI 的那个 fork
+            Link(destination: Self.repository) {
+                LabeledContent("项目仓库", value: "Enigma-Soul/iBreeze")
+            }
         }
     }
+
+    private static let repository = URL(string: "https://github.com/Enigma-Soul/iBreeze/")!
 
     private static var appVersion: String {
         let info = Bundle.main.infoDictionary
