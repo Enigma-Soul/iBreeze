@@ -20,9 +20,9 @@ final class ToastCenter {
     private(set) var toasts: [Toast] = []
     private var dismissals: [UUID: Task<Void, Never>] = [:]
 
-    /// 带动作的提示留久一点，免得不小心划过去
-    private static let plainDuration: TimeInterval = 3
-    private static let actionDuration: TimeInterval = 6
+    /// 每条最多留 3 秒，屏幕上最多同时两条——再多就只剩挡视线的份
+    private static let duration: TimeInterval = 3
+    private static let maxVisible = 2
 
     func show(
         _ message: String,
@@ -31,23 +31,24 @@ final class ToastCenter {
     ) {
         // 同一条消息不叠第二条：登录过期时并发取图会一次炸出七八个
         if let existing = toasts.first(where: { $0.message == message }) {
-            scheduleDismissal(existing.id, after: duration(for: existing))
+            scheduleDismissal(existing.id, after: Self.duration)
             return
+        }
+
+        // 满了就先把最旧的挤出去
+        while toasts.count >= Self.maxVisible, let oldest = toasts.first {
+            dismiss(oldest.id)
         }
 
         let toast = Toast(message: message, actionTitle: actionTitle, action: action)
         toasts.append(toast)
-        scheduleDismissal(toast.id, after: duration(for: toast))
+        scheduleDismissal(toast.id, after: Self.duration)
     }
 
     func dismiss(_ id: UUID) {
         dismissals[id]?.cancel()
         dismissals[id] = nil
         toasts.removeAll { $0.id == id }
-    }
-
-    private func duration(for toast: Toast) -> TimeInterval {
-        toast.actionTitle == nil ? Self.plainDuration : Self.actionDuration
     }
 
     private func scheduleDismissal(_ id: UUID, after seconds: TimeInterval) {
