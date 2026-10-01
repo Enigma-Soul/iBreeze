@@ -7,13 +7,16 @@ import os
 /// JSContext 被约束在一条串行队列上：插件执行不占用主线程，宿主能力通过
 /// `bridge` 路由异步回调回 JS。
 final class PluginRuntime: @unchecked Sendable {
+    private let pluginID: String
     private let executor: PluginRuntimeThread
     private let host: PluginHostBridge
     private let timers = PluginTimerCenter()
+    private let invocations = PluginInvocationRegistry()
     private let logger = Logger(subsystem: "com.enigma-soul.ibreeze", category: "PluginRuntime")
     private var context: JSContext?
 
     init(pluginID: String, host: PluginHostBridge) {
+        self.pluginID = pluginID
         self.host = host
         executor = PluginRuntimeThread(name: "com.enigma-soul.ibreeze.plugin.\(pluginID)")
         timers.setFireHandler { [weak self] hostID, payload in
@@ -27,6 +30,7 @@ final class PluginRuntime: @unchecked Sendable {
 
         try await run { [self] in
             timers.cancelAll()
+            invocations.failAll(with: PluginError.runtimeNotLoaded)
             context = nil
 
             let context = try Self.makeContext()
@@ -38,25 +42,75 @@ final class PluginRuntime: @unchecked Sendable {
 
             self.context = context
         }
+
+        await callInitIfNeeded()
     }
 
-    /// 调用插件的某个 `fnPath`，返回结果的 JSON 文本
+    /// 装载后按契约调用 `init`。
+    ///
+    /// 插件文档把 `init` 列为可选的初始化入口，哔咔这类插件依赖它建立会话，
+    /// 不调用的话之后的调用会直接报「未初始化」。
+    private func callInitIfNeeded() async {
+        guard await exportsFunction("init") else { return }
+
+        do {
+            _ = try await invoke(fnPath: "init", payloadJSON: "{}")
+        } catch {
+            // 初始化失败不阻断装载：插件可能只在需要登录时才报错
+            logger.error("插件 init 失败：\(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// 插件 bundle 是否导出了某个 `fnPath`：可选契约（init、退出登录…）靠它探测，
+    /// 直接调用未实现的方法会拿到一句「插件未实现 xxx」的报错
+    func exportsFunction(_ name: String) async -> Bool {
+        let script = "typeof __pluginExports !== 'undefined' && typeof __pluginExports["
+            + Self.jsonStringLiteral(name) + "] === 'function'"
+
+        return (try? await run { [self] () -> Bool in
+            guard let context else { return false }
+            return context.evaluateScript(script)?.toBool() ?? false
+        }) ?? false
+    }
+
+    /// 把名字编码成 JS 字符串字面量，避免拼接出可执行的代码
+    private static func jsonStringLiteral(_ value: String) -> String {
+        let data = (try? JSONEncoder().encode(value)) ?? Data("\"\"".utf8)
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    /// 调用插件的某个 `fnPath`，返回结果的 JSON 文本。
+    ///
+    /// 每次调用都带一个自增句柄，回调按句柄找回自己的等待者。JS 侧只有一个
+    /// `__nativeInvokeResolve` 入口，若按「谁最后装谁生效」来分发，并发调用
+    /// （阅读页一次预取 7 页、列表里十几张封面）就会互相顶掉回调，先发出的那些
+    /// 永远等不到结果——表现就是图片一直转圈。
     func invoke(fnPath: String, payloadJSON: String = "{}") async throws -> String {
-        let waiter = JSInvocationWaiter()
+        let (callID, waiter) = invocations.register()
 
-        try await run { [self] in
-            guard let context else { throw PluginError.runtimeNotLoaded }
-
-            let resolve: @convention(block) (Bool, String) -> Void = { ok, payload in
-                waiter.finish(ok ? .success(payload) : .failure(PluginError.pluginThrew(payload)))
+        do {
+            try await run { [self] in
+                guard let context else { throw PluginError.runtimeNotLoaded }
+                context.objectForKeyedSubscript("__invokePlugin")?
+                    .call(withArguments: [fnPath, payloadJSON, NSNumber(value: callID)])
+                try Self.throwIfException(context)
             }
-            context.setObject(resolve, forKeyedSubscript: "__nativeInvokeResolve" as NSString)
-
-            context.objectForKeyedSubscript("__invokePlugin")?.call(withArguments: [fnPath, payloadJSON])
-            try Self.throwIfException(context)
+        } catch {
+            invocations.remove(id: callID)
+            throw error
         }
 
-        return try await waiter.wait()
+        do {
+            return try await waiter.wait()
+        } catch {
+            // 登录失效可能从任意一次调用里冒出来，统一在这里上报一次，
+            // 各页面就不用自己处理了。
+            // init 除外：不少插件在 init 里跑后台登录，失败是常态，不该一开就弹表单
+            if fnPath != "init", case .unauthorized = error as? PluginError {
+                PluginLoginCenter.report(pluginID: pluginID)
+            }
+            throw error
+        }
     }
 
     /// 调用并解码为指定类型
@@ -95,6 +149,7 @@ final class PluginRuntime: @unchecked Sendable {
     func shutdown() async {
         try? await run { [self] in
             timers.cancelAll()
+            invocations.failAll(with: PluginError.runtimeNotLoaded)
             context = nil
         }
         executor.stop()
@@ -105,6 +160,15 @@ final class PluginRuntime: @unchecked Sendable {
     private func installNativeFunctions(on context: JSContext) {
         installHostHooks(on: context)
         installTimerHooks(on: context)
+
+        let resolveInvocation: @convention(block) (NSNumber, Bool, String) -> Void = { [weak self] handle, ok, payload in
+            guard let self else { return }
+            invocations.finish(
+                id: handle.intValue,
+                result: ok ? .success(payload) : .failure(PluginError.fromPluginPayload(payload))
+            )
+        }
+        context.setObject(resolveInvocation, forKeyedSubscript: "__nativeInvokeResolve" as NSString)
 
         let nativeLog: @convention(block) (String, String) -> Void = { [weak self] level, message in
             self?.logger.debug("[\(level, privacy: .public)] \(message, privacy: .public)")
@@ -218,14 +282,16 @@ final class PluginRuntime: @unchecked Sendable {
               let base64 = object["__ibreezeBinary"] as? String,
               let bytes = Data(base64Encoded: base64)
         else {
-            throw PluginError.pluginThrew("插件没有返回二进制数据")
+            // 带上返回片段：插件返回的既可能是普通错误对象，也可能是宿主没认出来的
+            // 二进制形状（信封缺失时只报「没有返回二进制数据」根本没法定位）
+            throw PluginError.pluginThrew("插件没有返回二进制数据：\(json.prefix(240))")
         }
         return bytes
     }
 }
 
 /// 把 JS 的一次性回调桥接成 Swift async 等待
-private final class JSInvocationWaiter: @unchecked Sendable {
+final class JSInvocationWaiter: @unchecked Sendable {
     private let lock = NSLock()
     private var continuation: CheckedContinuation<String, Error>?
     private var settled: Result<String, Error>?

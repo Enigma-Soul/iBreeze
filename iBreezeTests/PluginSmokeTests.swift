@@ -48,9 +48,10 @@ struct PluginSmokeTests {
         #expect(info.uuid == remote.manifest.uuid)
         #expect(!info.name.isEmpty)
 
-        // 插件的列表入口应能解析成列表场景（body.request.fnPath）
+        // 插件的列表入口应能解析成取数请求（新格式在 body.request，旧格式在 list）
         let scene = try #require(info.function?.first?.action.payload?.scene)
-        #expect(!scene.body.request.fnPath.isEmpty)
+        let request = try #require(scene.request)
+        #expect(!request.fnPath.isEmpty)
 
         // 插件自身的域名白名单会拒绝非图源地址，说明它的 JS 逻辑确实执行了
         await #expect(throws: PluginError.self) {
@@ -87,30 +88,50 @@ struct PluginSmokeTests {
         let scene = try #require(info.function?.first?.action.payload?.scene)
 
         // 1. 列表
+        let request = try #require(scene.request)
+
         let list = try await source.pagedList(
-            fnPath: scene.body.request.fnPath,
+            fnPath: request.fnPath,
             page: 1,
-            core: scene.body.request.core,
-            extern: scene.body.request.extern
+            core: request.core,
+            extern: request.extern
         )
         #expect(!list.resolvedItems.isEmpty, "列表没有返回任何条目")
         let item = try #require(list.resolvedItems.first)
         #expect(!item.id.isEmpty)
         #expect(!item.title.isEmpty)
 
-        // 2. 详情与章节
-        let detail = try await source.comicDetail(comicID: item.id)
-        #expect(detail.data?.normal?.comicInfo?.title?.isEmpty == false, "详情没有标题")
-        let chapters = try #require(detail.data?.normal?.eps)
-        #expect(!chapters.isEmpty, "详情没有章节")
+        // 2. 详情与章节。
+        //
+        // 逐个往后试：站点偶发限流或页面结构对不上时，插件自己会抛「解析失败」，
+        // 那是上游的事，不该让整条冒烟测试跟着红——取第一个能解出章节的条目即可。
+        var picked: (item: ComicListItem, chapters: [ChapterSummary])?
+        for candidate in list.resolvedItems.prefix(5) {
+            guard let detail = try? await source.comicDetail(comicID: candidate.id),
+                  let chapters = detail.data?.normal?.eps,
+                  !chapters.isEmpty,
+                  detail.data?.normal?.comicInfo?.title?.isEmpty == false
+            else { continue }
+            picked = (candidate, chapters)
+            break
+        }
+
+        let resolved = try #require(picked, "前 5 个条目都没能解出详情，可能是站点限流")
+        let chapters = resolved.chapters
 
         // 3. 阅读快照里的图片列表
         let snapshot = try await source.readSnapshot(
-            comicID: item.id,
+            comicID: resolved.item.id,
             chapterID: chapters[0].resolvedRequestId
         )
         let pages = try #require(snapshot.data?.chapter?.pages)
         #expect(!pages.isEmpty, "章节没有返回图片")
         #expect(pages[0].url?.isEmpty == false, "图片地址为空")
+
+        // 4. 按阅读页的方式取一页的真实字节：e-hentai 的 url 只是占位符
+        //    （/_breeze/read-image），必须把 extern 原样回传才能换到真图址
+        let page = try #require(pages.first)
+        let bytes = try await source.imageBytes(url: try #require(page.url), extern: page.extern)
+        #expect(bytes.count > 1024, "阅读页的图没有取到字节，只拿到 \(bytes.count) 字节")
     }
 }

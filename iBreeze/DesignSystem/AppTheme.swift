@@ -7,8 +7,6 @@ enum AppTheme {
     enum Spacing {
         /// 页面左右边距
         static let page: CGFloat = 16
-        /// 区块之间的纵向间距
-        static let section: CGFloat = 24
         /// 网格与横滑列表的间距
         static let grid: CGFloat = 12
     }
@@ -16,6 +14,13 @@ enum AppTheme {
     /// 圆角
     enum Radius {
         static let card: CGFloat = 16
+        static let thumbnail: CGFloat = 8
+    }
+
+    /// 尺寸
+    enum Size {
+        /// 单列列表里缩略图的尺寸，列表行与收藏页共用
+        static let listThumbnail = CGSize(width: 76, height: 106)
     }
 
     /// 卡片底板色

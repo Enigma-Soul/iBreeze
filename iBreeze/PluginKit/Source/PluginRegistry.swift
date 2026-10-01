@@ -15,6 +15,9 @@ final class PluginRegistry {
     private let installer: PluginInstaller
     private let repository: PluginRepository
     private var sources: [String: PluginSource] = [:]
+    /// 装载中的运行时：列表页会同时点开十几张封面，不合并的话每张都会
+    /// 新建一个 JSContext 把 bundle 重新解析一遍
+    private var loading: [String: Task<PluginSource, Error>] = [:]
 
     init(
         store: PluginStore = .shared,
@@ -32,15 +35,34 @@ final class PluginRegistry {
         installed = store.installed()
     }
 
-    /// 取插件源，必要时装载运行时；同一插件复用同一个运行时
+    /// 取插件源，必要时装载运行时；同一插件复用同一个运行时。
+    ///
+    /// 装载期间后来的调用会等同一个 Task：`await` 会让出主线程，并发进来时
+    /// `sources[uuid]` 还没写回去，不合并就会各建一个运行时。
     func source(for uuid: String) async throws -> PluginSource {
         if let existing = sources[uuid] { return existing }
+        if let pending = loading[uuid] { return try await pending.value }
 
         guard let plugin = store.plugin(uuid: uuid) else {
             throw PluginError.pluginThrew("插件未安装：\(uuid)")
         }
-        let source = PluginSource(plugin: plugin)
-        try await source.load(bundle: try store.bundle(for: uuid))
+
+        let task = Task { () throws -> PluginSource in
+            let source = PluginSource(plugin: plugin)
+            try await source.load(bundle: try store.bundle(for: uuid))
+            return source
+        }
+        loading[uuid] = task
+
+        defer { loading[uuid] = nil }
+        let source = try await task.value
+
+        // 装载期间被 close（卸载 / 更新）：这个运行时已经作废，别再挂回去
+        if task.isCancelled {
+            await source.shutdown()
+            throw CancellationError()
+        }
+
         sources[uuid] = source
         return source
     }
@@ -50,8 +72,15 @@ final class PluginRegistry {
         sources[uuid]
     }
 
+    /// 按 uuid 找已安装插件
+    func plugin(uuid: String) -> InstalledPlugin? {
+        installed.first { $0.uuid == uuid }
+    }
+
     /// 释放运行时（卸载或更新前调用）
     func close(uuid: String) async {
+        loading[uuid]?.cancel()
+        loading[uuid] = nil
         await sources[uuid]?.shutdown()
         sources[uuid] = nil
     }

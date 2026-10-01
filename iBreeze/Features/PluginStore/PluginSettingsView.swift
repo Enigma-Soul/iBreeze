@@ -27,6 +27,10 @@ final class PluginSettingsViewModel {
     private(set) var values: [String: JSONValue] = [:]
     private(set) var isLoading = false
     private(set) var errorMessage: String?
+    /// 插件是否支持登录（声明了 `getLoginBundle`）
+    private(set) var supportsLogin = false
+    /// 退出登录的 fnPath，插件没导出就为 nil
+    private(set) var signOutPath: String?
 
     private let plugin: InstalledPlugin
 
@@ -41,39 +45,73 @@ final class PluginSettingsViewModel {
 
         do {
             let source = try await PluginRegistry.shared.source(for: plugin.uuid)
+            supportsLogin = await source.supportsLogin()
+            signOutPath = supportsLogin ? await source.signOutPath() : nil
+
             let bundle = try await source.settingsBundle()
 
-            values = (bundle["data"]?["values"]?.anyValue as? [String: Any])?
-                .reduce(into: [:]) { result, pair in
-                    result[pair.key] = Self.jsonValue(pair.value)
-                } ?? [:]
+            values = bundle["data"]?["values"]?.objectValue ?? [:]
 
-            let scheme = bundle["scheme"]
-            let rawSections = scheme?["sections"]?.arrayValue ?? []
-            sections = rawSections.compactMap { section in
+            sections = (bundle["scheme"]?["sections"]?.arrayValue ?? []).compactMap { section in
                 guard let title = section["title"]?.stringValue else { return nil }
-                let fields = (section["fields"]?.arrayValue ?? []).compactMap { field -> Field? in
-                    guard let key = field["key"]?.stringValue,
-                          let kind = field["kind"]?.stringValue
-                    else { return nil }
-
-                    let options = (field["options"]?.arrayValue ?? []).compactMap { option -> (String, JSONValue)? in
-                        guard let label = option["label"]?.stringValue, let value = option["value"] else { return nil }
-                        return (label, value)
-                    }
-
-                    return Field(
-                        key: key,
-                        kind: kind,
-                        label: field["label"]?.stringValue ?? key,
-                        callbackPath: field["fnPath"]?.stringValue,
-                        persists: field["persist"]?.anyValue as? Bool ?? true,
-                        options: options
-                    )
-                }
-                return Section(title: title, fields: fields)
+                return Section(
+                    title: title,
+                    fields: (section["fields"]?.arrayValue ?? []).compactMap(Self.makeField)
+                )
             }
             errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// 把插件声明的一个字段解成 `Field`
+    private static func makeField(_ json: JSONValue) -> Field? {
+        guard let key = json["key"]?.stringValue, let kind = json["kind"]?.stringValue else { return nil }
+
+        let options = (json["options"]?.arrayValue ?? []).compactMap { option -> (label: String, value: JSONValue)? in
+            guard let label = option["label"]?.stringValue, let value = option["value"] else { return nil }
+            return (label, value)
+        }
+
+        return Field(
+            key: key,
+            kind: kind,
+            label: json["label"]?.stringValue ?? key,
+            callbackPath: json["fnPath"]?.stringValue,
+            persists: json["persist"]?.anyValue as? Bool ?? true,
+            options: options
+        )
+    }
+
+    /// 值的展示文本。
+    ///
+    /// 有些插件把 `{"ok":…,"value":…}` 这种信封原样存了进来，直接显示会很难看，
+    /// 这里拆一层；空值时显示空串而不是那串 JSON。
+    static func displayText(for value: JSONValue?) -> String {
+        guard let text = value?.stringValue else { return "" }
+        guard
+            let data = text.data(using: .utf8),
+            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            object["ok"] != nil
+        else { return text }
+
+        switch object["value"] {
+        case let string as String: return string
+        case let number as NSNumber: return number.stringValue
+        default: return ""
+        }
+    }
+
+    /// 退出登录：交给插件自己清理会话（token、账号密码都归它管）
+    func signOut() async {
+        guard let signOutPath else { return }
+
+        do {
+            let source = try await PluginRegistry.shared.source(for: plugin.uuid)
+            _ = try await source.perform(fnPath: signOutPath)
+            errorMessage = nil
+            ToastCenter.shared.show("已退出登录")
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -96,23 +134,13 @@ final class PluginSettingsViewModel {
             errorMessage = error.localizedDescription
         }
     }
-
-    /// 把 `Any` 还原成 JSONValue，便于在 SwiftUI 里传递
-    private static func jsonValue(_ value: Any) -> JSONValue {
-        switch value {
-        case let string as String: .string(string)
-        case let bool as Bool: .bool(bool)
-        case let number as NSNumber: .number(number.doubleValue)
-        case let array as [Any]: .array(array.map(jsonValue))
-        case let object as [String: Any]: .object(object.mapValues(jsonValue))
-        default: .null
-        }
-    }
 }
 
 /// 插件设置页：由插件声明字段，宿主渲染并回写
 struct PluginSettingsView: View {
     @State private var viewModel: PluginSettingsViewModel
+    @State private var showsLogin = false
+    @State private var confirmsSignOut = false
     private let plugin: InstalledPlugin
 
     init(plugin: InstalledPlugin) {
@@ -122,6 +150,8 @@ struct PluginSettingsView: View {
 
     var body: some View {
         Form {
+            accountSection
+
             if viewModel.sections.isEmpty {
                 Section {
                     if viewModel.isLoading {
@@ -156,6 +186,33 @@ struct PluginSettingsView: View {
         .navigationTitle(plugin.name)
         .navigationBarTitleDisplayMode(.inline)
         .task { if viewModel.sections.isEmpty { await viewModel.load() } }
+        .sheet(isPresented: $showsLogin) {
+            // 就地弹，而不是走根视图那份全局请求：设置页本身就在一张 sheet 上
+            PluginLoginSheet(pluginID: plugin.uuid, pluginName: plugin.name)
+        }
+        .confirmationDialog("确定要退出登录？", isPresented: $confirmsSignOut, titleVisibility: .visible) {
+            Button("退出登录", role: .destructive) {
+                Task { await viewModel.signOut() }
+            }
+        }
+    }
+
+    /// 支持登录的插件才有这一段
+    @ViewBuilder
+    private var accountSection: some View {
+        if viewModel.supportsLogin {
+            Section {
+                Button("登录") { showsLogin = true }
+
+                if viewModel.signOutPath != nil {
+                    Button("退出登录", role: .destructive) { confirmsSignOut = true }
+                }
+            } header: {
+                Text("账号")
+            } footer: {
+                Text("账号密码保存在插件自己的配置里；登录失效时宿主也会自动弹出这张表单。")
+            }
+        }
     }
 
     @ViewBuilder
@@ -181,21 +238,51 @@ struct PluginSettingsView: View {
                 }
             }
 
-        case "password":
-            LabeledContent(field.label) {
-                Text(viewModel.values[field.key]?.stringValue?.isEmpty == false ? "已设置" : "未设置")
-                    .foregroundStyle(.secondary)
-            }
-
         default:
-            TextField(field.label, text: Binding(
-                get: { viewModel.values[field.key]?.stringValue ?? "" },
-                set: { newValue in
-                    Task { await viewModel.update(field: field, value: .string(newValue)) }
-                }
-            ))
-            .textInputAutocapitalization(.never)
-            .autocorrectionDisabled()
+            SettingTextRow(
+                title: field.label,
+                isSecure: field.kind == "password",
+                initialValue: PluginSettingsViewModel.displayText(for: viewModel.values[field.key])
+            ) { text in
+                Task { await viewModel.update(field: field, value: .string(text)) }
+            }
         }
+    }
+}
+
+/// 文本类设置项：编辑时先写草稿，回车或离开页面才提交，
+/// 免得每敲一个字就回调一次插件。
+private struct SettingTextRow: View {
+    let title: String
+    let isSecure: Bool
+    let initialValue: String
+    let onCommit: (String) -> Void
+
+    @State private var draft: String?
+
+    var body: some View {
+        Group {
+            if isSecure {
+                SecureField(title, text: binding)
+            } else {
+                TextField(title, text: binding)
+            }
+        }
+        .textInputAutocapitalization(.never)
+        .autocorrectionDisabled()
+        .onSubmit(commit)
+        .onDisappear(perform: commit)
+    }
+
+    private var binding: Binding<String> {
+        Binding(
+            get: { draft ?? initialValue },
+            set: { draft = $0 }
+        )
+    }
+
+    private func commit() {
+        guard let draft, draft != initialValue else { return }
+        onCommit(draft)
     }
 }

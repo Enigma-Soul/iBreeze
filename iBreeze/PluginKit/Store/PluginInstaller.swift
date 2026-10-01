@@ -29,14 +29,19 @@ struct PluginDownloadChannel: Hashable, Sendable {
 /// 与 Breeze 一致：安装时不看清单文件，而是把 bundle 塞进一次性运行时跑
 /// `getInfo()`，用它返回的 uuid / version 作为权威信息。
 final class PluginInstaller: @unchecked Sendable {
-    /// jsDelivr 镜像，与 Breeze 使用的一组保持一致
-    private static let mirrors = [
+    /// jsDelivr 及其国内可达转发，按实测可达性排序（前两个在国内更稳）
+    private static let cdnMirrors = [
+        "https://cdn.jsdmirror.com/",
+        "https://cdn.jsdmirror.cn/",
         "https://cdn.jsdelivr.net/",
-        "https://fastly.jsdelivr.net/",
-        "https://gcore.jsdelivr.net/",
-        "https://testingcf.jsdelivr.net/",
-        "https://jsdelivr.b-cdn.net/",
-        "https://jsdelivr.pai233.top/"
+        "https://jsd.onmicrosoft.cn/",
+        "https://www.webcache.cn/"
+    ]
+
+    /// GitHub 加速前缀：Release 资产与 API 在国内经常直连不上
+    private static let gitHubProxies = [
+        "https://ghfast.top/",
+        "https://gh-proxy.com/"
     ]
 
     private let downloader: PluginDownloading
@@ -136,15 +141,11 @@ final class PluginInstaller: @unchecked Sendable {
         let tag = version ?? "latest"
         var lastError: Error = PluginInstallError.missingDownloadChannel
 
-        for mirror in Self.mirrors {
+        for mirror in Self.cdnMirrors {
             let address = "\(mirror)npm/\(npmName)@\(tag)/dist/\(npmName).bundle.cjs"
             guard let url = URL(string: address) else { continue }
             do {
-                let data = try await downloader.data(from: url)
-                guard let bundle = String(data: data, encoding: .utf8), !bundle.isEmpty else {
-                    throw PluginInstallError.invalidBundle("npm 返回内容为空")
-                }
-                return bundle
+                return try await text(from: url, emptyReason: "npm 返回内容为空")
             } catch {
                 lastError = error
             }
@@ -153,22 +154,66 @@ final class PluginInstaller: @unchecked Sendable {
     }
 
     private func downloadFromRelease(apiURL: URL) async throws -> String {
-        let releaseData = try await downloader.data(from: apiURL)
-        let release = try JSONDecoder().decode(Release.self, from: releaseData)
+        let release = try await fetchRelease(apiURL: apiURL)
 
         // 暂不支持 brotli，因此只挑未压缩的 .cjs
         let asset = release.assets?.first { asset in
             asset.name.hasSuffix(".bundle.cjs") || asset.name.hasSuffix(".cjs")
         }
-        guard let asset, let url = URL(string: asset.browserDownloadURL) else {
-            throw PluginInstallError.noCompatibleAsset
-        }
+        guard let asset else { throw PluginInstallError.noCompatibleAsset }
 
+        var lastError: Error = PluginInstallError.noCompatibleAsset
+        for address in assetCandidates(asset: asset, release: release, apiURL: apiURL) {
+            guard let url = URL(string: address) else { continue }
+            do {
+                return try await text(from: url, emptyReason: "Release 资产内容为空")
+            } catch {
+                lastError = error
+            }
+        }
+        throw lastError
+    }
+
+    /// Release 信息：直连 API 优先，失败再走加速前缀
+    private func fetchRelease(apiURL: URL) async throws -> Release {
+        var lastError: Error?
+
+        for address in [apiURL.absoluteString] + Self.gitHubProxies.map({ "\($0)\(apiURL.absoluteString)" }) {
+            guard let url = URL(string: address) else { continue }
+            do {
+                let data = try await downloader.data(from: url)
+                return try JSONDecoder().decode(Release.self, from: data)
+            } catch {
+                lastError = error
+            }
+        }
+        throw lastError ?? PluginInstallError.missingDownloadChannel
+    }
+
+    /// 资产候选地址：直连 → 加速前缀 → jsDelivr 的 gh 通道（部分插件把 dist 提交进仓库）
+    private func assetCandidates(asset: Release.Asset, release: Release, apiURL: URL) -> [String] {
+        var candidates = [asset.browserDownloadURL]
+        candidates += Self.gitHubProxies.map { "\($0)\(asset.browserDownloadURL)" }
+
+        if let tag = release.tagName, let repoPath = Self.repositoryPath(from: apiURL) {
+            candidates += Self.cdnMirrors.map { "\($0)gh/\(repoPath)@\(tag)/\(asset.name)" }
+        }
+        return candidates
+    }
+
+    private func text(from url: URL, emptyReason: String) async throws -> String {
         let data = try await downloader.data(from: url)
         guard let bundle = String(data: data, encoding: .utf8), !bundle.isEmpty else {
-            throw PluginInstallError.invalidBundle("Release 资产内容为空")
+            throw PluginInstallError.invalidBundle(emptyReason)
         }
         return bundle
+    }
+
+    /// 从 `https://api.github.com/repos/{owner}/{repo}/releases/latest` 里取出 `owner/repo`
+    private static func repositoryPath(from apiURL: URL) -> String? {
+        let parts = apiURL.pathComponents
+        guard let index = parts.firstIndex(of: "repos"), parts.count > index + 2 else { return nil }
+        return "\(parts[index + 1])/\(parts[index + 2])"
     }
 
     /// GitHub Release API 的最小字段集

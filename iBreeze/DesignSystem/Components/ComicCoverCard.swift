@@ -8,7 +8,7 @@ struct ComicCoverCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            PluginImageView(sourceID: sourceID, url: item.cover?.url)
+            PluginImageView(sourceID: sourceID, url: item.cover?.url, extern: item.cover?.extern)
                 .frame(width: width, height: width.map { $0 * 4 / 3 })
                 .clipShape(RoundedRectangle(cornerRadius: AppTheme.Radius.card, style: .continuous))
 

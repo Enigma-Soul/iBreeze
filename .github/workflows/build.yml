@@ -3,8 +3,19 @@ name: Build iOS
 on:
   push:
     branches: [develop, main]
+    # 文档与本地工具不影响编译，不必占用 macOS 额度
+    paths-ignore:
+      - "**.md"
+      - "Tools/**"
+      - ".gitattributes"
+      - ".gitignore"
   pull_request:
     branches: [develop, main]
+    paths-ignore:
+      - "**.md"
+      - "Tools/**"
+      - ".gitattributes"
+      - ".gitignore"
   workflow_dispatch:
 
 concurrency:
@@ -15,8 +26,24 @@ jobs:
   build:
     name: 编译并打包未签名 IPA
     runs-on: macos-26
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
+
+      # 版本号以 CHANGELOG 顶部那条 `# x.y.z` 为准，发版与 ipa 用的是同一个值
+      - name: 读取版本号
+        id: version
+        run: |
+          # 用 [[:space:]] 而不是 \s：macOS 上是 BSD grep/sed，不认 \s
+          version=$(grep -m1 -E '^#[[:space:]]+[0-9]+\.[0-9]+\.[0-9]+' CHANGELOG.md \
+            | sed -E 's/^#[[:space:]]+([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
+          if [ -z "$version" ]; then
+            echo "CHANGELOG.md 顶部没有形如 '# 0.1.0' 的版本号" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "本次构建版本：$version"
 
       - name: Xcode 版本
         run: xcodebuild -version
@@ -27,7 +54,11 @@ jobs:
       - name: 生成 Xcode 工程
         run: xcodegen generate
 
+      # 构建号取流水线号，保证每次上传的 ipa CFBundleVersion 递增
       - name: 运行单元测试
+        env:
+          MARKETING_VERSION: ${{ steps.version.outputs.version }}
+          CURRENT_PROJECT_VERSION: ${{ github.run_number }}
         run: |
           set -o pipefail
           DEVICE=$(xcrun simctl list devices available | grep -oE '^ +iPhone [^(]*' | head -1 | sed 's/^ *//; s/ *$//')
@@ -37,10 +68,15 @@ jobs:
             -project iBreeze.xcodeproj \
             -scheme iBreeze \
             -destination "platform=iOS Simulator,name=$DEVICE" \
+            MARKETING_VERSION="$MARKETING_VERSION" \
+            CURRENT_PROJECT_VERSION="$CURRENT_PROJECT_VERSION" \
             CODE_SIGNING_ALLOWED=NO \
             2>&1 | tee "$RUNNER_TEMP/test.log" | { grep -E "Test run|✔|✘|error:|TEST (SUCCEEDED|FAILED)" | tail -40 || true; }
 
       - name: 编译归档（不签名）
+        env:
+          MARKETING_VERSION: ${{ steps.version.outputs.version }}
+          CURRENT_PROJECT_VERSION: ${{ github.run_number }}
         run: |
           xcodebuild archive \
             -project iBreeze.xcodeproj \
@@ -48,6 +84,8 @@ jobs:
             -configuration Release \
             -destination 'generic/platform=iOS' \
             -archivePath "$RUNNER_TEMP/iBreeze.xcarchive" \
+            MARKETING_VERSION="$MARKETING_VERSION" \
+            CURRENT_PROJECT_VERSION="$CURRENT_PROJECT_VERSION" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
@@ -67,3 +105,60 @@ jobs:
           name: iBreeze-unsigned-ipa
           path: ${{ runner.temp }}/iBreeze-unsigned.ipa
           if-no-files-found: error
+
+  # 合并进 main 才发版：版本号仍取 CHANGELOG 顶部那条，正文取该版本块
+  release:
+    name: 发布 Release
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 切出本版本的发布说明
+        id: notes
+        run: |
+          version="${{ needs.build.outputs.version }}"
+          # 从第一条版本标题到第二条版本标题之间就是本版本的正文
+          # （ubuntu 上是 mawk，同样不认 \s，用字符类）
+          awk -v ver="$version" '
+            $0 ~ "^#[ \t]+" ver "[ \t]*$" { inside = 1; next }
+            inside && /^#[ \t]+[0-9]+\.[0-9]+\.[0-9]+/ { exit }
+            inside { print }
+          ' CHANGELOG.md > release_body.md
+
+          if [ ! -s release_body.md ]; then
+            echo "CHANGELOG.md 里没有拦住 v$version 的正文，先补上再发版" >&2
+            exit 1
+          fi
+          echo "--- release_body.md ---"
+          cat release_body.md
+
+      - name: 判断该版本是否已经发过
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "v${{ needs.build.outputs.version }}" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "v${{ needs.build.outputs.version }} 已经发过，跳过"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 下载 IPA
+        if: steps.check.outputs.skip != 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: iBreeze-unsigned-ipa
+
+      - name: 创建 Release
+        if: steps.check.outputs.skip != 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.build.outputs.version }}
+          name: v${{ needs.build.outputs.version }}
+          body_path: release_body.md
+          files: iBreeze-unsigned.ipa
+          draft: false
+          prerelease: false

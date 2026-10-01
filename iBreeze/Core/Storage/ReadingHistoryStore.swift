@@ -31,25 +31,28 @@ final class ReadingHistoryStore {
     }
 
     func record(_ entry: ReadingHistoryEntry) {
-        file.update { list in
+        mutate { list in
             list.removeAll { $0.id == entry.id }
             list.insert(entry, at: 0)
             if list.count > Self.limit {
                 list.removeLast(list.count - Self.limit)
             }
         }
-        entries = file.read()
     }
 
     func remove(_ entry: ReadingHistoryEntry) {
-        file.update { list in
+        mutate { list in
             list.removeAll { $0.id == entry.id }
         }
-        entries = file.read()
     }
 
     func clear() {
-        file.update { $0.removeAll() }
-        entries = []
+        mutate { $0.removeAll() }
+    }
+
+    /// 落盘后同步内存快照，省得每处都写一遍 read()
+    private func mutate(_ transform: (inout [ReadingHistoryEntry]) -> Void) {
+        file.update(transform)
+        entries = file.read()
     }
 }

@@ -1,13 +1,13 @@
 import SwiftUI
 
 extension View {
-    /// iOS 26 走液态玻璃，低版本回退到系统毛玻璃材质
+    /// 标签栏随列表下滚收起、上滚展开。iOS 26 起由系统负责，更早的系统一直显示
     @ViewBuilder
-    func glassSurface<S: Shape>(in shape: S) -> some View {
+    func minimizesTabBarOnScroll() -> some View {
         if #available(iOS 26.0, *) {
-            glassEffect(.regular, in: shape)
+            tabBarMinimizeBehavior(.onScrollDown)
         } else {
-            background(.ultraThinMaterial, in: shape)
+            self
         }
     }
 }

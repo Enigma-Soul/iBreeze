@@ -1,32 +1,214 @@
 import SwiftUI
 
-/// 首页：插件入口 + 浏览记录 + 插件源推荐漫画
+/// 首页：顶部切换插件源与入口，下面是该入口的内容。
+///
+/// 与 EhViewer 一样，首页/搜索/收藏共用同一套列表容器，首页只负责选数据源：
+/// 源 = 已安装插件，入口 = 插件声明的「最新 / 热门 / 排行 / 导航」等。
 struct HomeView: View {
     @Environment(PluginRegistry.self) private var registry
+    @State private var viewModel = HomeViewModel()
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: AppTheme.Spacing.section) {
-                    PluginRowSection()
-                    BrowsingHistorySection()
-                    RecommendedComicsSection()
-                }
-                .padding(.vertical, AppTheme.Spacing.section)
-            }
-            .navigationTitle(AppTab.home.title)
-            .appNavigationDestinations()
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    NavigationLink {
-                        SettingsView()
-                    } label: {
-                        Image(systemName: "gearshape")
+            content
+                // 搜索框与插件图标压在最上层，下面的内容从它们背后滑过去
+                .safeAreaInset(edge: .top, spacing: 0) { sourceBar }
+                .navigationTitle(AppTab.home.title)
+                .navigationBarTitleDisplayMode(.inline)
+                .appNavigationDestinations()
+                .toolbar { toolbarContent }
+        }
+        .task { await viewModel.reload() }
+        .onChange(of: registry.installed.map(\.uuid)) { _, _ in
+            Task { await viewModel.reload() }
+        }
+    }
+
+    // MARK: - 顶部
+
+    /// 固定层：搜索框 + 插件图标。入口选项卡不在这里——它跟着内容滚，
+    /// 划到这一行才钉住（见 `pinnedEntryStrip`）
+    @ViewBuilder
+    private var sourceBar: some View {
+        if !viewModel.sources.isEmpty {
+            VStack(spacing: 10) {
+                searchField
+
+                SourceTabStrip(sources: viewModel.sources, selection: Binding(
+                    get: { viewModel.selectedSourceID },
+                    set: { newValue in
+                        guard let newValue else { return }
+                        Task { await viewModel.select(sourceID: newValue) }
                     }
-                    .accessibilityLabel("设置")
+                ))
+            }
+            .padding(.top, 8)
+            .padding(.bottom, 10)
+            .background(.bar)
+        }
+    }
+
+    /// 取数失败时的提示，没有错误就返回 nil（列表自己会显示到底或加载中）
+    private static func loadFailure(_ message: String?) -> AnyView? {
+        guard let message, !message.isEmpty else { return nil }
+
+        return AnyView(
+            ContentUnavailableView(
+                "加载失败",
+                systemImage: "exclamationmark.triangle",
+                description: Text(message)
+            )
+        )
+    }
+
+    /// 钉住用的入口选项卡；只有一个入口时返回 nil，列表也就不会启用钉住
+    private var pinnedEntryStrip: AnyView? {
+        guard viewModel.entries.count > 1 else { return nil }
+
+        return AnyView(
+            EntryPillStrip(entries: viewModel.entries, selection: Binding(
+                get: { viewModel.selectedEntryID },
+                set: { newValue in
+                    guard let newValue else { return }
+                    Task { await viewModel.select(entryID: newValue) }
+                }
+            ))
+            .padding(.vertical, 8)
+            .background(.bar)
+        )
+    }
+
+    /// 顶部搜索框：直接在当前源里搜（不少插件只有搜索入口）
+    @ViewBuilder
+    private var searchField: some View {
+        if let source = viewModel.selectedSource {
+            NavigationLink {
+                PluginSearchPage(sourceID: source.uuid, sourceName: source.name, initialKeyword: "")
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(.secondary)
+                    Text("在 \(source.name) 中搜索")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+                .font(.subheadline)
+                .padding(.horizontal, 14)
+                .frame(height: 38)
+                .background(Capsule().fill(Color(uiColor: .tertiarySystemFill)))
+                .padding(.horizontal, AppTheme.Spacing.page)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    /// 当前列表带筛选器时（排行榜之类）才显示筛选入口
+    private var activeFilterList: ComicListViewModel? {
+        guard case .list(let list) = viewModel.content, list.hasFilter else { return nil }
+        return list
+    }
+
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        if let list = activeFilterList {
+            ToolbarItem(placement: .topBarTrailing) {
+                FilterMenu(
+                    title: list.filterTitle,
+                    options: list.filterOptions,
+                    activeLabel: list.activeFilterLabel
+                ) { option in
+                    Task { await list.apply(option: option) }
                 }
             }
         }
-        .onAppear { registry.reload() }
+    }
+
+    // MARK: - 内容
+
+    @ViewBuilder
+    private var content: some View {
+        if viewModel.sources.isEmpty {
+            ContentUnavailableView(
+                "还没有安装插件",
+                systemImage: "puzzlepiece.extension",
+                description: Text("去「设置 → 插件管理」安装后即可浏览")
+            )
+        } else if let source = viewModel.selectedSource, viewModel.selectedSourceNeedsSearch {
+            ContentUnavailableView {
+                Label("只能搜索", systemImage: "magnifyingglass")
+            } description: {
+                Text("\(source.name) 没有提供浏览入口")
+            } actions: {
+                NavigationLink("搜索该插件") {
+                    PluginSearchPage(sourceID: source.uuid, sourceName: source.name, initialKeyword: "")
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        } else {
+            entryContent
+        }
+    }
+
+    @ViewBuilder
+    private var entryContent: some View {
+        switch viewModel.content {
+        case .list(let list):
+            ComicResultList(
+                items: list.items,
+                sourceID: viewModel.selectedSourceID ?? "",
+                isLoading: list.isLoading,
+                hasReachedMax: list.hasReachedMax,
+                loadMore: { Task { await list.loadMore() } },
+                leading: AnyView(ContinueReadingStrip()),
+                pinnedHeader: pinnedEntryStrip,
+                // 取数失败时给出提示，否则点了入口像是没反应
+                emptyState: Self.loadFailure(list.errorMessage)
+            )
+
+        case .page(let page):
+            ScrollView {
+                LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
+                    // 功能页也是首页的一部分，阅读记录同样要在这里
+                    ContinueReadingStrip()
+
+                    Section {
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text(page.title)
+                                .font(.subheadline.weight(.semibold))
+                                .padding(.horizontal, AppTheme.Spacing.page)
+                                .padding(.top, 12)
+
+                            if let loaded = page.page {
+                                FunctionPageContent(sourceID: page.sourceID, page: loaded)
+                            } else if let message = page.errorMessage {
+                                ContentUnavailableView(
+                                    "加载失败",
+                                    systemImage: "exclamationmark.triangle",
+                                    description: Text(message)
+                                )
+                                .padding(.top, 40)
+                            } else {
+                                ProgressView().padding(.top, 40).frame(maxWidth: .infinity)
+                            }
+                        }
+                    } header: {
+                        pinnedEntryStrip
+                    }
+                }
+            }
+
+        case .route(let title, let route):
+            VStack(spacing: 12) {
+                NavigationLink(title, value: route)
+                    .buttonStyle(.borderedProminent)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+        case .unsupported(let reason):
+            ContentUnavailableView("暂不支持", systemImage: "questionmark.circle", description: Text(reason))
+
+        case nil:
+            ProgressView()
+        }
     }
 }

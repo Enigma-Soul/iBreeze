@@ -46,7 +46,7 @@ final class ReaderViewModel {
             pages = snapshot.data?.chapter?.pages ?? []
             chapters = snapshot.data?.chapters ?? []
             errorMessage = pages.isEmpty ? "该章节没有返回图片" : nil
-            prefetch()
+            prefetch(around: 0)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -59,26 +59,69 @@ final class ReaderViewModel {
         await load()
     }
 
-    /// 预取前几页，减少滚动时的白屏
-    private func prefetch() {
-        let urls = pages.prefix(3).compactMap(\.url)
-        guard !urls.isEmpty, let source = try? PluginRegistry.shared.cachedSource(for: sourceID) else { return }
-        Task { await ComicImageLoader.shared.prefetch(pluginUUID: sourceID, urls: urls, source: source) }
+    /// 预取当前位置往后六页，减少翻页时的白屏
+    func prefetch(around index: Int) {
+        guard let source = try? PluginRegistry.shared.cachedSource(for: sourceID) else { return }
+
+        let start = max(0, index)
+        let end = min(pages.count, index + 7)
+        guard start < end else { return }
+
+        let targets = pages[start..<end].compactMap { page -> (url: String, extern: JSONValue?)? in
+            guard let url = page.url, !url.isEmpty else { return nil }
+            return (url, page.extern)
+        }
+        guard !targets.isEmpty else { return }
+        Task {
+            await ComicImageLoader.shared.prefetch(
+                pluginUUID: sourceID,
+                pages: targets,
+                chapterID: chapterID,
+                source: source
+            )
+        }
     }
 }
 
-/// 阅读页：整章纵向连读
+/// 阅读器工具条的玻璃底：底色恒为黑，因此固定深色，不跟随明暗模式
+private extension View {
+    func readerGlass<S: Shape>(in shape: S) -> some View {
+        self
+            .background(.ultraThinMaterial, in: shape)
+            .background(Color.black.opacity(0.5), in: shape)
+            .environment(\.colorScheme, .dark)
+    }
+}
+
+/// 阅读页：三段点击区 + 玻璃工具栏 + 页码网格跳转。
+///
+/// 点击区域按 EhViewer 的做法划分：左右各 30% 翻页、中间 40% 切换工具栏，
+/// 上下各留 20% 死区，避免点顶部/底部误翻页。
 struct ReaderPage: View {
     let sourceID: String
-    let comicID: String
     let chapterName: String
     let comicTitle: String
 
     @State private var viewModel: ReaderViewModel
+    /// 滚动位置。用 `ScrollPosition` 而不是 `scrollPosition(id:)`：后者要等滚动
+    /// 结束才回写页码，滑动途中拿到的是上一页，照着它翻页会直接跳回去
+    @State private var scrollPosition = ScrollPosition(idType: String.self)
+    /// 用户还在滑（拖动 / 惯性）时为真，此时忽略点击
+    @State private var isScrollInFlight = false
+    @State private var showsChrome = true
+    @State private var showsPageGrid = false
+    @State private var showsSettings = false
+    /// 拖滑杆时只写本地状态，松手才提交，避免每动一像素就让整页重算
+    @State private var draggingPage: Double?
+
+    @AppStorage(SettingsKey.readingDirection) private var directionRaw = ReadingDirection.vertical.rawValue
+
+    private var direction: ReadingDirection {
+        ReadingDirection(rawValue: directionRaw) ?? .vertical
+    }
 
     init(sourceID: String, comicID: String, chapterID: String, chapterName: String, comicTitle: String) {
         self.sourceID = sourceID
-        self.comicID = comicID
         self.chapterName = chapterName
         self.comicTitle = comicTitle
         _viewModel = State(initialValue: ReaderViewModel(
@@ -89,63 +132,282 @@ struct ReaderPage: View {
     }
 
     var body: some View {
-        ScrollView {
+        GeometryReader { geometry in
+            ZStack {
+                Color.black.ignoresSafeArea()
+
+                if direction.isPaged {
+                    pagedReader
+                } else {
+                    continuousReader
+                }
+
+                chrome
+            }
+            // 用 simultaneousGesture 而不是覆盖一层按钮：后者会把滚动一起吃掉
+            .simultaneousGesture(
+                SpatialTapGesture().onEnded { value in
+                    handleTap(at: value.location, size: geometry.size)
+                }
+            )
+        }
+        .background(Color.black)
+        // 沉浸模式下连导航栏一起藏；显示时用系统返回键，侧滑返回也可用
+        .toolbarVisibility(showsChrome ? .visible : .hidden, for: .navigationBar)
+        .toolbarBackground(.hidden, for: .navigationBar)
+        .toolbarColorScheme(.dark, for: .navigationBar)
+        .hidesFloatingTabBar()
+        .statusBarHidden(!showsChrome)
+        .task { if viewModel.pages.isEmpty { await viewModel.load() } }
+        .onChange(of: currentPageNumber) { _, number in
+            viewModel.prefetch(around: number - 1)
+        }
+        .sheet(isPresented: $showsPageGrid) {
+            PageGridSheet(
+                pages: viewModel.pages,
+                currentIndex: currentPageNumber - 1,
+                onSelect: { goTo(index: $0) }
+            )
+        }
+        .sheet(isPresented: $showsSettings) {
+            ReaderSettingsSheet()
+        }
+        .overlay { stateOverlay }
+    }
+
+    // MARK: - 两种翻页
+
+    private var continuousReader: some View {
+        ScrollView(.vertical) {
             LazyVStack(spacing: 0) {
-                ForEach(viewModel.pages) { page in
-                    PluginImageView(sourceID: sourceID, url: page.url, contentMode: .fit)
-                        .frame(maxWidth: .infinity)
+                ForEach(Array(viewModel.pages.enumerated()), id: \.element.id) { index, page in
+                    // 加载完成前先占 400pt 并显示页码：图源慢时页面不会叠在一起
+                    PluginImageView(
+                        sourceID: sourceID,
+                        url: page.url,
+                        contentMode: .fit,
+                        pageNumber: index + 1,
+                        placeholderHeight: 400,
+                        extern: page.extern,
+                        chapterID: viewModel.chapterID
+                    )
+                    .frame(maxWidth: .infinity)
+                    .id(page.id)
                 }
             }
         }
-        .navigationTitle(chapterName.convertedChinese)
-        .navigationBarTitleDisplayMode(.inline)
-        .task { if viewModel.pages.isEmpty { await viewModel.load() } }
-        .overlay(alignment: .bottom) { chapterBar }
-        .overlay { emptyOverlay }
-        .sensoryFeedback(.success, trigger: viewModel.chapterID)
-        .toolbarVisibility(.hidden, for: .bottomBar)
+        .scrollPosition($scrollPosition)
+        .onScrollPhaseChange { _, phase in
+            isScrollInFlight = phase == .tracking || phase == .interacting || phase == .decelerating
+        }
+        .ignoresSafeArea()
     }
 
-    /// 悬浮章节切换条：液态玻璃质感，压在内容之上
+    private var pagedReader: some View {
+        ScrollView(.horizontal) {
+            LazyHStack(spacing: 0) {
+                ForEach(Array(viewModel.pages.enumerated()), id: \.element.id) { index, page in
+                    PluginImageView(
+                        sourceID: sourceID,
+                        url: page.url,
+                        contentMode: .fit,
+                        pageNumber: index + 1,
+                        extern: page.extern,
+                        chapterID: viewModel.chapterID
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .containerRelativeFrame(.horizontal)
+                    .id(page.id)
+                }
+            }
+            .scrollTargetLayout()
+        }
+        .scrollTargetBehavior(.paging)
+        .scrollPosition($scrollPosition)
+        .onScrollPhaseChange { _, phase in
+            isScrollInFlight = phase == .tracking || phase == .interacting || phase == .decelerating
+        }
+        // 只影响这一层：工具栏是兄弟视图，不会被翻转
+        .environment(\.layoutDirection, direction == .rightToLeft ? .rightToLeft : .leftToRight)
+        .ignoresSafeArea()
+    }
+
+    // MARK: - 工具栏
+
     @ViewBuilder
-    private var chapterBar: some View {
-        if !viewModel.pages.isEmpty {
-            HStack(spacing: 18) {
-                chapterButton(title: "上一章", systemImage: "chevron.left", chapter: viewModel.previousChapter)
-                Text((chapterName.isEmpty ? comicTitle : chapterName).convertedChinese)
+    private var chrome: some View {
+        if showsChrome, !viewModel.pages.isEmpty {
+            VStack(spacing: 0) {
+                topBar
+                Spacer(minLength: 0)
+                bottomBar
+            }
+            .transition(.opacity)
+        }
+    }
+
+    private var topBar: some View {
+        HStack(spacing: 8) {
+            glassCapsule {
+                Text(chapterName.isEmpty ? comicTitle : chapterName)
                     .font(.footnote)
                     .lineLimit(1)
-                    .frame(maxWidth: 160)
-                chapterButton(title: "下一章", systemImage: "chevron.right", chapter: viewModel.nextChapter)
+                    .padding(.trailing, 4)
             }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 10)
-            .glassSurface(in: Capsule())
-            .padding(.bottom, 12)
+
+            Spacer(minLength: 0)
+
+            glassCapsule {
+                Button { showsPageGrid = true } label: {
+                    Image(systemName: "square.grid.3x3")
+                }
+                .accessibilityLabel("目录")
+
+                Button { showsSettings = true } label: {
+                    Image(systemName: "gearshape")
+                }
+                .accessibilityLabel("阅读设置")
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 8)
+    }
+
+    private var bottomBar: some View {
+        VStack(spacing: 4) {
+            HStack(spacing: 10) {
+                Text("\(currentPageNumber)")
+                    .font(.caption.monospacedDigit())
+
+                Slider(
+                    value: Binding(
+                        get: { draggingPage ?? Double(currentPageNumber) },
+                        set: { draggingPage = $0 }
+                    ),
+                    in: 1...Double(max(viewModel.pages.count, 1)),
+                    step: 1,
+                    onEditingChanged: { editing in
+                        guard !editing, let target = draggingPage else { return }
+                        draggingPage = nil
+                        goTo(index: Int(target) - 1)
+                    }
+                )
+                .tint(.white)
+
+                Text("\(viewModel.pages.count)")
+                    .font(.caption.monospacedDigit())
+            }
+
+            chapterSwitcher
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .readerGlass(in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .padding(.horizontal, 12)
+        .padding(.bottom, 8)
+    }
+
+    private var chapterSwitcher: some View {
+        HStack {
+            Button {
+                guard let previous = viewModel.previousChapter else { return }
+                switchChapter(to: previous)
+            } label: {
+                Label("上一章", systemImage: "chevron.left")
+                    .font(.caption)
+            }
+            .disabled(viewModel.previousChapter == nil)
+
+            Spacer()
+
+            Text(chapterName.isEmpty ? comicTitle : chapterName)
+                .font(.caption2)
+                .foregroundStyle(.white.opacity(0.7))
+                .lineLimit(1)
+
+            Spacer()
+
+            Button {
+                guard let next = viewModel.nextChapter else { return }
+                switchChapter(to: next)
+            } label: {
+                Label("下一章", systemImage: "chevron.right")
+                    .font(.caption)
+            }
+            .disabled(viewModel.nextChapter == nil)
         }
     }
 
-    private func chapterButton(title: String, systemImage: String, chapter: ChapterSummary?) -> some View {
-        Button {
-            guard let chapter else { return }
-            Task { await viewModel.switchTo(chapter: chapter) }
-        } label: {
-            Label(title, systemImage: systemImage)
-                .labelStyle(.iconOnly)
-                .font(.body.weight(.semibold))
-                .frame(width: 32, height: 32)
+    private func glassCapsule<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        HStack(spacing: 10) { content() }
+            .padding(.horizontal, 14)
+            .frame(height: 38)
+            .foregroundStyle(.white)
+            .readerGlass(in: Capsule())
+    }
+
+    // MARK: - 交互
+
+    private var currentPageNumber: Int {
+        guard let currentID = scrollPosition.viewID(type: String.self),
+              let index = viewModel.pages.firstIndex(where: { $0.id == currentID })
+        else { return 1 }
+        return index + 1
+    }
+
+    private func handleTap(at location: CGPoint, size: CGSize) {
+        // 上下各 20% 是死区
+        guard location.y > size.height * 0.2, location.y < size.height * 0.8 else { return }
+        // 手上还在滑就别响应：纵向阅读里误触一下就会翻页，
+        // 横向翻页时页码也还没落定
+        guard !isScrollInFlight else { return }
+
+        // 纵向连续阅读本来就是上下滑着看的，点击只收放工具栏
+        guard direction.isPaged else {
+            withAnimation(.easeInOut(duration: 0.2)) { showsChrome.toggle() }
+            return
         }
-        .disabled(chapter == nil)
-        .accessibilityLabel(title)
+
+        let ratio = location.x / max(size.width, 1)
+        let tapsBackward = direction == .rightToLeft ? ratio > 0.7 : ratio < 0.3
+        let tapsForward = direction == .rightToLeft ? ratio < 0.3 : ratio > 0.7
+
+        if tapsBackward {
+            goTo(index: currentPageNumber - 2)
+        } else if tapsForward {
+            goTo(index: currentPageNumber)
+        } else {
+            withAnimation(.easeInOut(duration: 0.2)) { showsChrome.toggle() }
+        }
+    }
+
+    private func goTo(index: Int) {
+        guard viewModel.pages.indices.contains(index) else { return }
+        withAnimation(.snappy(duration: 0.25)) {
+            scrollPosition.scrollTo(id: viewModel.pages[index].id)
+        }
+    }
+
+    /// 换章后回到开头：滚动位置还停在上一个章节的页码上
+    private func switchChapter(to chapter: ChapterSummary) {
+        Task {
+            await viewModel.switchTo(chapter: chapter)
+            scrollPosition.scrollTo(edge: .top)
+        }
     }
 
     @ViewBuilder
-    private var emptyOverlay: some View {
+    private var stateOverlay: some View {
         if viewModel.pages.isEmpty {
             if let message = viewModel.errorMessage {
-                ContentUnavailableView("无法打开章节", systemImage: "exclamationmark.triangle", description: Text(message))
+                ContentUnavailableView(
+                    "无法打开章节",
+                    systemImage: "exclamationmark.triangle",
+                    description: Text(message)
+                )
             } else {
-                ProgressView()
+                ProgressView().tint(.white)
             }
         }
     }

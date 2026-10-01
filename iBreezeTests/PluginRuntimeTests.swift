@@ -21,6 +21,10 @@ module.exports = {
         bridge.callSync("cache.set.sync", "sync-key", { value: 42 });
         return bridge.callSync("cache.get.sync", "sync-key", null);
     },
+    async echoSlow(payload) {
+        await new Promise((resolve) => setTimeout(resolve, payload.delayMs));
+        return { tag: payload.tag };
+    },
     boom() {
         throw new Error("插件内部错误");
     }
@@ -65,6 +69,11 @@ module.exports = {
     },
     binary() {
         return new Uint8Array([1, 2, 3, 4]);
+    },
+    // 禁漫的 fetchImageBytes 就是这个形状：字节留在缓冲区池里，只回一个 id
+    async nativeBufferEnvelope() {
+        const id = await native.put(new Uint8Array([9, 8, 7, 6]));
+        return { nativeBufferId: Number(id) };
     },
     async cryptoRoundTrip() {
         return {
@@ -115,6 +124,32 @@ struct PluginRuntimeTests {
         let json = try await runtime.invoke(fnPath: "syncRoundTrip")
 
         #expect(json.contains("42"))
+    }
+
+    /// 取图并发时最容易踩：一次预取 7 页、列表十几张封面同时进来，
+    /// 回调若不按句柄分发，先发出的那些会永远等不到结果（表现为图片一直转圈）
+    @Test("并发调用各自拿到结果")
+    func concurrentInvocations() async throws {
+        let runtime = try await makeRuntime()
+
+        let tags = try await withThrowingTaskGroup(of: String.self) { group in
+            // 先发的后返回，顺序打乱才暴露「回调被后一次顶掉」
+            for (tag, delayMs) in [("a", 60), ("b", 40), ("c", 20), ("d", 0)] {
+                group.addTask {
+                    let object = try await runtime.invokeObject(
+                        fnPath: "echoSlow",
+                        payloadJSON: #"{"tag":"\#(tag)","delayMs":\#(delayMs)}"#
+                    )
+                    return object["tag"] as? String ?? ""
+                }
+            }
+
+            var collected: [String] = []
+            for try await tag in group { collected.append(tag) }
+            return collected.sorted().joined()
+        }
+
+        #expect(tags == "abcd")
     }
 
     @Test("插件抛错转成 Swift 错误")
@@ -168,6 +203,10 @@ struct PluginWebRuntimeTests {
         let data = try await runtime.invokeData(fnPath: "binary")
         #expect(Array(data) == [1, 2, 3, 4])
 
+        // 禁漫把字节留在缓冲区池、只回 nativeBufferId，宿主必须还原成字节
+        let nativeEnvelope = try await runtime.invokeData(fnPath: "nativeBufferEnvelope")
+        #expect(Array(nativeEnvelope) == [9, 8, 7, 6])
+
         let crypto = try await runtime.invokeObject(fnPath: "cryptoRoundTrip")
         #expect(crypto["digest"] as? String
             == "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824")
@@ -175,6 +214,36 @@ struct PluginWebRuntimeTests {
             == "9307b3b915efb5171ff14d8cb55fbcc798c6c0ef1456d66ded1a6aa723a58b7b")
         #expect(crypto["randomLength"] as? Int == 8)
         #expect(crypto["uuidLength"] as? Int == 36)
+    }
+}
+
+/// 云端收藏：宿主不自己拼列表，而是按契约问插件要场景再复用列表页
+@Suite("云端收藏场景")
+struct CloudFavoriteSceneTests {
+    /// 哔咔 `getCloudFavoriteSceneBundle` 的真实返回
+    private static let bikaBundle = #"""
+    {"source":"0a0e5858-a467-4702-994a-79e608a4589d","scheme":{"version":"1.0.0","type":"comicListSceneBundle"},
+     "data":{"scene":{"title":"云端收藏","source":"0a0e5858-a467-4702-994a-79e608a4589d",
+       "body":{"type":"pluginPagedComicList","request":{"fnPath":"getFavoriteData","core":{},"extern":{"source":"cloudFavorite","sort":"dd"}}},
+       "filter":{"fnPath":"getCloudFavoriteFilterBundle","extern":{"source":"cloudFavorite"}}}}}
+    """#
+
+    @Test("解出取数请求与筛选器")
+    func decodesScene() throws {
+        let bundle = try JSONDecoder().decode(JSONValue.self, from: Data(Self.bikaBundle.utf8))
+        let sceneValue = try #require(bundle["data"]?["scene"])
+        let scene = try JSONDecoder().decode(
+            ComicListScene.self,
+            from: try JSONEncoder().encode(sceneValue)
+        )
+
+        #expect(scene.title == "云端收藏")
+        #expect(scene.request?.fnPath == "getFavoriteData")
+        #expect(scene.request?.extern?["source"]?.stringValue == "cloudFavorite")
+
+        // 筛选器也得带上它自己的 extern，否则插件认不出是哪张列表的筛选器
+        #expect(scene.filter?.fnPath == "getCloudFavoriteFilterBundle")
+        #expect(scene.filter?.extern?["source"]?.stringValue == "cloudFavorite")
     }
 }
 

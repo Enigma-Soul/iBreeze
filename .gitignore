@@ -10,3 +10,6 @@ build/
 
 # macOS
 .DS_Store
+
+# 本地工具缓存（探针下载的插件 bundle）
+Tools/.cache/

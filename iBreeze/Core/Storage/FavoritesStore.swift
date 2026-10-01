@@ -34,15 +34,19 @@ final class FavoritesStore {
         if contains(source: entry.source, comicID: entry.comicID) {
             remove(source: entry.source, comicID: entry.comicID)
         } else {
-            file.update { $0.insert(entry, at: 0) }
-            entries = file.read()
+            mutate { $0.insert(entry, at: 0) }
         }
     }
 
     func remove(source: String, comicID: String) {
-        file.update { list in
+        mutate { list in
             list.removeAll { $0.source == source && $0.comicID == comicID }
         }
+    }
+
+    /// 落盘后同步内存快照，省得每处都写一遍 read()
+    private func mutate(_ transform: (inout [FavoriteEntry]) -> Void) {
+        file.update(transform)
         entries = file.read()
     }
 }

@@ -53,6 +53,11 @@ extension JSONValue {
         return value
     }
 
+    var objectValue: [String: JSONValue]? {
+        guard case .object(let value) = self else { return nil }
+        return value
+    }
+
     /// 转回 `JSONSerialization` 能接受的形式，用于拼装插件入参
     var anyValue: Any {
         switch self {

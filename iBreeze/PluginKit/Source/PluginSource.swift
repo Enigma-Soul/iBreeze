@@ -42,24 +42,20 @@ final class PluginSource: @unchecked Sendable {
         if let keyword { payload["keyword"] = keyword }
         payload["extern"] = extern?.anyValue ?? [:]
 
-        return try await runtime.invoke(
-            ComicPagedList.self,
-            fnPath: fnPath,
-            payloadJSON: try Self.json(payload)
-        )
+        let json = try await runtime.invoke(fnPath: fnPath, payloadJSON: try Self.json(payload))
+        return try Self.decode(ComicPagedList.self, from: json)
     }
 
     func comicDetail(comicID: String, extern: JSONValue? = nil) async throws -> ComicDetailResult {
-        try await runtime.invoke(
-            ComicDetailResult.self,
+        let json = try await runtime.invoke(
             fnPath: "getComicDetail",
             payloadJSON: try Self.json(["comicId": comicID, "extern": extern?.anyValue ?? [:]])
         )
+        return try Self.decode(ComicDetailResult.self, from: json)
     }
 
     func readSnapshot(comicID: String, chapterID: String, extern: JSONValue? = nil) async throws -> ReadSnapshot {
-        try await runtime.invoke(
-            ReadSnapshot.self,
+        let json = try await runtime.invoke(
             fnPath: "getReadSnapshot",
             payloadJSON: try Self.json([
                 "comicId": comicID,
@@ -67,16 +63,26 @@ final class PluginSource: @unchecked Sendable {
                 "extern": extern?.anyValue ?? [:]
             ])
         )
+        return try Self.decode(ReadSnapshot.self, from: json)
     }
 
-    /// 图片下载：插件自己决定怎么拿，宿主只负责调度
-    func imageBytes(url: String, timeoutMs: Int = 30_000, taskGroupKey: String = "") async throws -> Data {
+    /// 图片下载：插件自己决定怎么拿，宿主只负责调度。
+    ///
+    /// `extern` 必须原样回传：e-hentai 这类插件把真实图址放在页面的 extern 里，
+    /// 靠它把占位地址（`/_breeze/read-image`）换成真实地址。
+    func imageBytes(
+        url: String,
+        extern: JSONValue? = nil,
+        timeoutMs: Int = 30_000,
+        taskGroupKey: String = ""
+    ) async throws -> Data {
         try await runtime.invokeData(
             fnPath: "fetchImageBytes",
             payloadJSON: try Self.json([
                 "url": url,
                 "timeoutMs": timeoutMs,
-                "taskGroupKey": taskGroupKey
+                "taskGroupKey": taskGroupKey,
+                "extern": extern?.anyValue ?? [:]
             ])
         )
     }
@@ -88,19 +94,94 @@ final class PluginSource: @unchecked Sendable {
         try await invokeJSON(fnPath: "getComicListSceneBundle")
     }
 
+    /// 插件自定义页面（`openPluginFunction` 的落地页）
+    func functionPage(id: String, page: Int? = nil) async throws -> FunctionPage {
+        var payload: [String: Any] = ["id": id]
+        if let page { payload["page"] = page }
+
+        let json = try await runtime.invoke(fnPath: "getFunctionPage", payloadJSON: try Self.json(payload))
+        guard let data = json.data(using: .utf8) else {
+            throw PluginError.invalidPayload("功能页返回值不是合法 UTF-8")
+        }
+        return try JSONDecoder().decode(FunctionPage.self, from: data)
+    }
+
+    /// 列表筛选器。
+    ///
+    /// `core`/`extern` 来自场景里的 filter 声明：插件靠它们区分是哪张列表的筛选器
+    /// （哔咔的排行榜与云端收藏都各自带一份 `extern.source`）。
+    func filterBundle(fnPath: String, core: JSONValue? = nil, extern: JSONValue? = nil) async throws -> FilterBundle {
+        var payload = (core?.anyValue as? [String: Any]) ?? [:]
+        if let extern { payload["extern"] = extern.anyValue }
+
+        let json = try await runtime.invoke(
+            fnPath: fnPath,
+            payloadJSON: payload.isEmpty ? "{}" : try Self.json(payload)
+        )
+        guard let data = json.data(using: .utf8) else {
+            throw PluginError.invalidPayload("筛选器返回值不是合法 UTF-8")
+        }
+        return try JSONDecoder().decode(FilterBundle.self, from: data)
+    }
+
+    /// 云端收藏：宿主按契约问插件要场景，拿到的结构与列表入口同源
+    func cloudFavoriteScene() async throws -> ComicListScene {
+        let bundle = try await invokeJSON(fnPath: "getCloudFavoriteSceneBundle")
+        guard let scene = bundle["data"]?["scene"] ?? bundle["scene"] else {
+            throw PluginError.invalidPayload("云端收藏没有返回列表场景")
+        }
+
+        let data = try JSONEncoder().encode(scene)
+        return try JSONDecoder().decode(ComicListScene.self, from: data)
+    }
+
     /// 高级搜索筛选项
     func advancedSearch() async throws -> JSONValue {
         try await invokeJSON(fnPath: "getAdvancedSearchScheme")
     }
 
-    /// 列表筛选器
-    func filterBundle(fnPath: String) async throws -> JSONValue {
-        try await invokeJSON(fnPath: fnPath)
-    }
 
     /// 插件设置页
     func settingsBundle() async throws -> JSONValue {
         try await invokeJSON(fnPath: "getSettingsBundle")
+    }
+
+    // MARK: - 登录
+
+    /// 插件是否实现了某个可选 fnPath（宿主用来决定要不要露出对应入口）
+    func exportsFunction(_ name: String) async -> Bool {
+        await runtime.exportsFunction(name)
+    }
+
+    /// 插件是否声明了登录能力
+    func supportsLogin() async -> Bool {
+        await exportsFunction("getLoginBundle")
+    }
+
+    /// 插件声明的登录表单（`scheme`），没实现登录的插件会抛「未实现」
+    func loginScheme() async throws -> JSONValue {
+        let bundle = try await invokeJSON(fnPath: "getLoginBundle")
+        return bundle["scheme"] ?? bundle
+    }
+
+    /// 登录表单的预填值（账号/密码回填）
+    func loginPrefill() async throws -> [String: JSONValue] {
+        let bundle = try await invokeJSON(fnPath: "getLoginBundle")
+        return bundle["data"]?.objectValue ?? [:]
+    }
+
+    /// 调用插件声明的动作（登录、退出登录…），fnPath 由插件给出而不是宿主写死
+    @discardableResult
+    func perform(fnPath: String, payload: [String: Any] = [:]) async throws -> JSONValue {
+        try await invokeJSON(fnPath: fnPath, payloadJSON: try Self.json(payload))
+    }
+
+    /// 猜不出统一名字，按常见导出探测一个退出登录入口；没有就返回 nil
+    func signOutPath() async -> String? {
+        for candidate in ["clearPluginSession", "logout", "signOut"] {
+            if await runtime.exportsFunction(candidate) { return candidate }
+        }
+        return nil
     }
 
     /// 收藏工作流（`phase` 取 `start` / `continue`）
@@ -146,6 +227,15 @@ final class PluginSource: @unchecked Sendable {
             throw PluginError.invalidPayload("插件返回值不是合法 UTF-8")
         }
         return try JSONDecoder().decode(JSONValue.self, from: data)
+    }
+
+    /// 解码失败时把返回片段带上，方便判断是哪一处契约不符
+    private static func decode<T: Decodable>(_ type: T.Type, from json: String) throws -> T {
+        do {
+            return try JSONDecoder().decode(type, from: Data(json.utf8))
+        } catch {
+            throw PluginError.invalidPayload("返回格式不符（\(error.localizedDescription)）：\(json.prefix(240))")
+        }
     }
 
     private static func json(_ payload: Any) throws -> String {
