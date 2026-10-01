@@ -1,3 +1,4 @@
+import Foundation
 import Observation
 
 /// 右上角气泡：面向「做完了」「登录过期了」这类不需要打断操作的提示。
