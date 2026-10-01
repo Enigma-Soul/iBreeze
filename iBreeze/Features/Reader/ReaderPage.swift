@@ -103,8 +103,11 @@ struct ReaderPage: View {
     let comicTitle: String
 
     @State private var viewModel: ReaderViewModel
-    /// 当前页（双向绑定给 scrollPosition）
-    @State private var currentPageID: String?
+    /// 滚动位置。用 `ScrollPosition` 而不是 `scrollPosition(id:)`：后者要等滚动
+    /// 结束才回写页码，滑动途中拿到的是上一页，照着它翻页会直接跳回去
+    @State private var scrollPosition = ScrollPosition(idType: String.self)
+    /// 用户还在滑（拖动 / 惯性）时为真，此时忽略点击
+    @State private var isScrollInFlight = false
     @State private var showsChrome = true
     @State private var showsPageGrid = false
     @State private var showsSettings = false
@@ -156,8 +159,8 @@ struct ReaderPage: View {
         .hidesFloatingTabBar()
         .statusBarHidden(!showsChrome)
         .task { if viewModel.pages.isEmpty { await viewModel.load() } }
-        .onChange(of: currentPageID) { _, _ in
-            viewModel.prefetch(around: currentPageNumber - 1)
+        .onChange(of: currentPageNumber) { _, number in
+            viewModel.prefetch(around: number - 1)
         }
         .sheet(isPresented: $showsPageGrid) {
             PageGridSheet(
@@ -193,7 +196,10 @@ struct ReaderPage: View {
                 }
             }
         }
-        .scrollPosition(id: $currentPageID)
+        .scrollPosition($scrollPosition)
+        .onScrollPhaseChange { _, phase in
+            isScrollInFlight = phase == .tracking || phase == .interacting || phase == .decelerating
+        }
         .ignoresSafeArea()
     }
 
@@ -217,7 +223,10 @@ struct ReaderPage: View {
             .scrollTargetLayout()
         }
         .scrollTargetBehavior(.paging)
-        .scrollPosition(id: $currentPageID)
+        .scrollPosition($scrollPosition)
+        .onScrollPhaseChange { _, phase in
+            isScrollInFlight = phase == .tracking || phase == .interacting || phase == .decelerating
+        }
         // 只影响这一层：工具栏是兄弟视图，不会被翻转
         .environment(\.layoutDirection, direction == .rightToLeft ? .rightToLeft : .leftToRight)
         .ignoresSafeArea()
@@ -303,7 +312,7 @@ struct ReaderPage: View {
         HStack {
             Button {
                 guard let previous = viewModel.previousChapter else { return }
-                Task { await viewModel.switchTo(chapter: previous) }
+                switchChapter(to: previous)
             } label: {
                 Label("上一章", systemImage: "chevron.left")
                     .font(.caption)
@@ -321,7 +330,7 @@ struct ReaderPage: View {
 
             Button {
                 guard let next = viewModel.nextChapter else { return }
-                Task { await viewModel.switchTo(chapter: next) }
+                switchChapter(to: next)
             } label: {
                 Label("下一章", systemImage: "chevron.right")
                     .font(.caption)
@@ -341,8 +350,8 @@ struct ReaderPage: View {
     // MARK: - 交互
 
     private var currentPageNumber: Int {
-        guard let currentPageID,
-              let index = viewModel.pages.firstIndex(where: { $0.id == currentPageID })
+        guard let currentID = scrollPosition.viewID(type: String.self),
+              let index = viewModel.pages.firstIndex(where: { $0.id == currentID })
         else { return 1 }
         return index + 1
     }
@@ -350,6 +359,15 @@ struct ReaderPage: View {
     private func handleTap(at location: CGPoint, size: CGSize) {
         // 上下各 20% 是死区
         guard location.y > size.height * 0.2, location.y < size.height * 0.8 else { return }
+        // 手上还在滑就别响应：纵向阅读里误触一下就会翻页，
+        // 横向翻页时页码也还没落定
+        guard !isScrollInFlight else { return }
+
+        // 纵向连续阅读本来就是上下滑着看的，点击只收放工具栏
+        guard direction.isPaged else {
+            withAnimation(.easeInOut(duration: 0.2)) { showsChrome.toggle() }
+            return
+        }
 
         let ratio = location.x / max(size.width, 1)
         let tapsBackward = direction == .rightToLeft ? ratio > 0.7 : ratio < 0.3
@@ -367,7 +385,15 @@ struct ReaderPage: View {
     private func goTo(index: Int) {
         guard viewModel.pages.indices.contains(index) else { return }
         withAnimation(.snappy(duration: 0.25)) {
-            currentPageID = viewModel.pages[index].id
+            scrollPosition.scrollTo(id: viewModel.pages[index].id)
+        }
+    }
+
+    /// 换章后回到开头：滚动位置还停在上一个章节的页码上
+    private func switchChapter(to chapter: ChapterSummary) {
+        Task {
+            await viewModel.switchTo(chapter: chapter)
+            scrollPosition.scrollTo(edge: .top)
         }
     }
 
