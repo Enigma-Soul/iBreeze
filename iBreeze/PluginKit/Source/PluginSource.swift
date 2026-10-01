@@ -126,6 +126,39 @@ final class PluginSource: @unchecked Sendable {
         try await invokeJSON(fnPath: "getSettingsBundle")
     }
 
+    // MARK: - 登录
+
+    /// 插件是否声明了登录能力
+    func supportsLogin() async -> Bool {
+        await runtime.exportsFunction("getLoginBundle")
+    }
+
+    /// 插件声明的登录表单（`scheme`），没实现登录的插件会抛「未实现」
+    func loginScheme() async throws -> JSONValue {
+        let bundle = try await invokeJSON(fnPath: "getLoginBundle")
+        return bundle["scheme"] ?? bundle
+    }
+
+    /// 登录表单的预填值（账号/密码回填）
+    func loginPrefill() async throws -> [String: JSONValue] {
+        let bundle = try await invokeJSON(fnPath: "getLoginBundle")
+        return bundle["data"]?.objectValue ?? [:]
+    }
+
+    /// 调用插件声明的动作（登录、退出登录…），fnPath 由插件给出而不是宿主写死
+    @discardableResult
+    func perform(fnPath: String, payload: [String: Any] = [:]) async throws -> JSONValue {
+        try await invokeJSON(fnPath: fnPath, payloadJSON: try Self.json(payload))
+    }
+
+    /// 猜不出统一名字，按常见导出探测一个退出登录入口；没有就返回 nil
+    func signOutPath() async -> String? {
+        for candidate in ["clearPluginSession", "logout", "signOut"] {
+            if await runtime.exportsFunction(candidate) { return candidate }
+        }
+        return nil
+    }
+
     /// 收藏工作流（`phase` 取 `start` / `continue`）
     func favoriteAction(phase: String, payload: JSONValue) async throws -> JSONValue {
         try await invokeJSON(

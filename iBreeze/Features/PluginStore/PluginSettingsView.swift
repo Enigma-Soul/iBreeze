@@ -27,6 +27,10 @@ final class PluginSettingsViewModel {
     private(set) var values: [String: JSONValue] = [:]
     private(set) var isLoading = false
     private(set) var errorMessage: String?
+    /// 插件是否支持登录（声明了 `getLoginBundle`）
+    private(set) var supportsLogin = false
+    /// 退出登录的 fnPath，插件没导出就为 nil
+    private(set) var signOutPath: String?
 
     private let plugin: InstalledPlugin
 
@@ -41,6 +45,9 @@ final class PluginSettingsViewModel {
 
         do {
             let source = try await PluginRegistry.shared.source(for: plugin.uuid)
+            supportsLogin = await source.supportsLogin()
+            signOutPath = supportsLogin ? await source.signOutPath() : nil
+
             let bundle = try await source.settingsBundle()
 
             values = bundle["data"]?["values"]?.objectValue ?? [:]
@@ -96,6 +103,19 @@ final class PluginSettingsViewModel {
         }
     }
 
+    /// 退出登录：交给插件自己清理会话（token、账号密码都归它管）
+    func signOut() async {
+        guard let signOutPath else { return }
+
+        do {
+            let source = try await PluginRegistry.shared.source(for: plugin.uuid)
+            _ = try await source.perform(fnPath: signOutPath)
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     /// 值变化：先按约定持久化，再回调插件的 fnPath
     func update(field: Field, value: JSONValue) async {
         values[field.key] = value
@@ -118,6 +138,8 @@ final class PluginSettingsViewModel {
 /// 插件设置页：由插件声明字段，宿主渲染并回写
 struct PluginSettingsView: View {
     @State private var viewModel: PluginSettingsViewModel
+    @State private var showsLogin = false
+    @State private var confirmsSignOut = false
     private let plugin: InstalledPlugin
 
     init(plugin: InstalledPlugin) {
@@ -127,6 +149,8 @@ struct PluginSettingsView: View {
 
     var body: some View {
         Form {
+            accountSection
+
             if viewModel.sections.isEmpty {
                 Section {
                     if viewModel.isLoading {
@@ -161,6 +185,33 @@ struct PluginSettingsView: View {
         .navigationTitle(plugin.name)
         .navigationBarTitleDisplayMode(.inline)
         .task { if viewModel.sections.isEmpty { await viewModel.load() } }
+        .sheet(isPresented: $showsLogin) {
+            // 就地弹，而不是走根视图那份全局请求：设置页本身就在一张 sheet 上
+            PluginLoginSheet(pluginID: plugin.uuid, pluginName: plugin.name)
+        }
+        .confirmationDialog("确定要退出登录？", isPresented: $confirmsSignOut, titleVisibility: .visible) {
+            Button("退出登录", role: .destructive) {
+                Task { await viewModel.signOut() }
+            }
+        }
+    }
+
+    /// 支持登录的插件才有这一段
+    @ViewBuilder
+    private var accountSection: some View {
+        if viewModel.supportsLogin {
+            Section {
+                Button("登录") { showsLogin = true }
+
+                if viewModel.signOutPath != nil {
+                    Button("退出登录", role: .destructive) { confirmsSignOut = true }
+                }
+            } header: {
+                Text("账号")
+            } footer: {
+                Text("账号密码保存在插件自己的配置里；登录失效时宿主也会自动弹出这张表单。")
+            }
+        }
     }
 
     @ViewBuilder

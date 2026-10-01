@@ -11,11 +11,15 @@ struct RootView: View {
     @State private var showsSettings = false
     /// 二级页面（详情/阅读等）要求隐藏标签栏
     @State private var isHiddenByChildPage = false
+    /// 任何插件调用报「未授权」都会落到这里，由根视图弹一次登录表单
+    @State private var login = PluginLoginCenter.shared
 
     private var isTabBarHidden: Bool { tabBar.isHidden || isHiddenByChildPage }
 
     var body: some View {
-        ZStack {
+        @Bindable var login = login
+
+        return ZStack {
             ForEach(AppTab.allCases) { tab in
                 page(for: tab)
                     .opacity(selection == tab ? 1 : 0)
@@ -32,6 +36,13 @@ struct RootView: View {
         .observesFloatingTabBarVisibility { isHiddenByChildPage = $0 }
         .sheet(isPresented: $showsSettings) {
             NavigationStack { SettingsView() }
+        }
+        .sheet(item: $login.request) { request in
+            PluginLoginSheet(
+                pluginID: request.pluginID,
+                pluginName: request.pluginName,
+                notice: request.message
+            )
         }
         .onChange(of: selection) { _, _ in tabBar.reset() }
         .preferredColorScheme(AppearanceMode(rawValue: appearance)?.colorScheme)

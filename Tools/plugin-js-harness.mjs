@@ -83,6 +83,14 @@ module.exports = {
       uuidLength: crypto.randomUUID().length,
     };
   },
+  // 哔咔用 throw new Error(JSON.stringify(payload)) 表达「需要登录」
+  async unauthorized() {
+    throw new Error(JSON.stringify({
+      type: "unauthorized",
+      message: "登录过期，请重新登录",
+      scheme: { type: "login", title: "登录", fields: [{ key: "account" }] },
+    }));
+  },
   async echoSlow({ tag, delayMs }) {
     await new Promise((resolve) => setTimeout(resolve, delayMs));
     return { tag };
@@ -323,6 +331,25 @@ try {
   threw = true;
 }
 check("插件抛错可捕获", threw);
+
+// 宿主靠「第一个括号配平的 JSON 对象」来还原结构化错误，
+// 这里确认垫片确实把 JSON 原样带上、只是后面多接了调用栈
+let unauthorizedMessage = "";
+try {
+  await runtime.invoke("unauthorized");
+} catch (error) {
+  unauthorizedMessage = String(error.message);
+}
+check(
+  "未授权负载原样带到宿主",
+  unauthorizedMessage.startsWith("{") && unauthorizedMessage.includes('"type":"unauthorized"'),
+  unauthorizedMessage.slice(0, 120)
+);
+check(
+  "负载后面接了调用栈（宿主必须先切出 JSON 再解析）",
+  unauthorizedMessage.indexOf("{") < unauthorizedMessage.lastIndexOf("{"),
+  unauthorizedMessage.slice(-60)
+);
 
 let missingThrew = false;
 try {

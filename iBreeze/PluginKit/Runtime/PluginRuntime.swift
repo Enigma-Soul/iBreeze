@@ -7,6 +7,7 @@ import os
 /// JSContext 被约束在一条串行队列上：插件执行不占用主线程，宿主能力通过
 /// `bridge` 路由异步回调回 JS。
 final class PluginRuntime: @unchecked Sendable {
+    private let pluginID: String
     private let executor: PluginRuntimeThread
     private let host: PluginHostBridge
     private let timers = PluginTimerCenter()
@@ -15,6 +16,7 @@ final class PluginRuntime: @unchecked Sendable {
     private var context: JSContext?
 
     init(pluginID: String, host: PluginHostBridge) {
+        self.pluginID = pluginID
         self.host = host
         executor = PluginRuntimeThread(name: "com.enigma-soul.ibreeze.plugin.\(pluginID)")
         timers.setFireHandler { [weak self] hostID, payload in
@@ -49,13 +51,7 @@ final class PluginRuntime: @unchecked Sendable {
     /// 插件文档把 `init` 列为可选的初始化入口，哔咔这类插件依赖它建立会话，
     /// 不调用的话之后的调用会直接报「未初始化」。
     private func callInitIfNeeded() async {
-        let exposesInit = (try? await run { [self] () -> Bool in
-            guard let context else { return false }
-            let script = "typeof __pluginExports !== 'undefined' && typeof __pluginExports.init === 'function'"
-            return context.evaluateScript(script)?.toBool() ?? false
-        }) ?? false
-
-        guard exposesInit else { return }
+        guard await exportsFunction("init") else { return }
 
         do {
             _ = try await invoke(fnPath: "init", payloadJSON: "{}")
@@ -63,6 +59,24 @@ final class PluginRuntime: @unchecked Sendable {
             // 初始化失败不阻断装载：插件可能只在需要登录时才报错
             logger.error("插件 init 失败：\(error.localizedDescription, privacy: .public)")
         }
+    }
+
+    /// 插件 bundle 是否导出了某个 `fnPath`：可选契约（init、退出登录…）靠它探测，
+    /// 直接调用未实现的方法会拿到一句「插件未实现 xxx」的报错
+    func exportsFunction(_ name: String) async -> Bool {
+        let script = "typeof __pluginExports !== 'undefined' && typeof __pluginExports["
+            + Self.jsonStringLiteral(name) + "] === 'function'"
+
+        return (try? await run { [self] () -> Bool in
+            guard let context else { return false }
+            return context.evaluateScript(script)?.toBool() ?? false
+        }) ?? false
+    }
+
+    /// 把名字编码成 JS 字符串字面量，避免拼接出可执行的代码
+    private static func jsonStringLiteral(_ value: String) -> String {
+        let data = (try? JSONEncoder().encode(value)) ?? Data("\"\"".utf8)
+        return String(decoding: data, as: UTF8.self)
     }
 
     /// 调用插件的某个 `fnPath`，返回结果的 JSON 文本。
@@ -86,7 +100,17 @@ final class PluginRuntime: @unchecked Sendable {
             throw error
         }
 
-        return try await waiter.wait()
+        do {
+            return try await waiter.wait()
+        } catch {
+            // 登录失效可能从任意一次调用里冒出来，统一在这里上报一次，
+            // 各页面就不用自己处理了。
+            // init 除外：不少插件在 init 里跑后台登录，失败是常态，不该一开就弹表单
+            if fnPath != "init", case .unauthorized = error as? PluginError {
+                PluginLoginCenter.report(pluginID: pluginID)
+            }
+            throw error
+        }
     }
 
     /// 调用并解码为指定类型
@@ -141,7 +165,7 @@ final class PluginRuntime: @unchecked Sendable {
             guard let self else { return }
             invocations.finish(
                 id: handle.intValue,
-                result: ok ? .success(payload) : .failure(PluginError.pluginThrew(payload))
+                result: ok ? .success(payload) : .failure(PluginError.fromPluginPayload(payload))
             )
         }
         context.setObject(resolveInvocation, forKeyedSubscript: "__nativeInvokeResolve" as NSString)
