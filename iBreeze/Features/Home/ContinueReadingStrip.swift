@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// 「继续阅读」：最近读过的条目，固定在首页插件图标下方、不随列表滚动
+/// 「继续阅读」：最近读过的条目。它是列表的头部，会跟着往上滚到插件图标下面，
+/// 下面的入口选项卡滚到顶则钉住不动
 struct ContinueReadingStrip: View {
     private var history = ReadingHistoryStore.shared
 
@@ -42,17 +43,8 @@ struct ContinueReadingStrip: View {
         }
     }
 
-    /// 有章节就直接续读，否则回详情页
+    /// 一律先进详情页：直接进阅读器会跳过封面与章节选择，误点一下就要退两次
     private func route(for entry: ReadingHistoryEntry) -> AppRoute {
-        if let chapterID = entry.chapterID, !chapterID.isEmpty {
-            return .reader(
-                sourceID: entry.source,
-                comicID: entry.comicID,
-                chapterID: chapterID,
-                chapterName: entry.chapterName ?? "",
-                title: entry.title
-            )
-        }
-        return .comicDetail(sourceID: entry.source, comicID: entry.comicID)
+        .comicDetail(sourceID: entry.source, comicID: entry.comicID)
     }
 }

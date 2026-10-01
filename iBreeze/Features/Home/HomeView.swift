@@ -10,14 +10,13 @@ struct HomeView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                sourceBar
-                content
-            }
-            .navigationTitle(AppTab.home.title)
-            .navigationBarTitleDisplayMode(.inline)
-            .appNavigationDestinations()
-            .toolbar { toolbarContent }
+            content
+                // 搜索框与插件图标压在最上层，下面的内容从它们背后滑过去
+                .safeAreaInset(edge: .top, spacing: 0) { sourceBar }
+                .navigationTitle(AppTab.home.title)
+                .navigationBarTitleDisplayMode(.inline)
+                .appNavigationDestinations()
+                .toolbar { toolbarContent }
         }
         .task { await viewModel.reload() }
         .onChange(of: registry.installed.map(\.uuid)) { _, _ in
@@ -27,6 +26,8 @@ struct HomeView: View {
 
     // MARK: - 顶部
 
+    /// 固定层：搜索框 + 插件图标。入口选项卡不在这里——它跟着内容滚，
+    /// 划到这一行才钉住（见 `pinnedEntryStrip`）
     @ViewBuilder
     private var sourceBar: some View {
         if !viewModel.sources.isEmpty {
@@ -40,25 +41,28 @@ struct HomeView: View {
                         Task { await viewModel.select(sourceID: newValue) }
                     }
                 ))
-
-                // 阅读记录紧挨在插件图标下面，且不随列表滚动，切入口时也一直在
-                ContinueReadingStrip()
-
-                Divider()
-
-                if viewModel.entries.count > 1 {
-                    EntryPillStrip(entries: viewModel.entries, selection: Binding(
-                        get: { viewModel.selectedEntryID },
-                        set: { newValue in
-                            guard let newValue else { return }
-                            Task { await viewModel.select(entryID: newValue) }
-                        }
-                    ))
-                }
             }
             .padding(.top, 8)
-            .padding(.bottom, 4)
+            .padding(.bottom, 10)
+            .background(.bar)
         }
+    }
+
+    /// 钉住用的入口选项卡；只有一个入口时返回 nil，列表也就不会启用钉住
+    private var pinnedEntryStrip: AnyView? {
+        guard viewModel.entries.count > 1 else { return nil }
+
+        return AnyView(
+            EntryPillStrip(entries: viewModel.entries, selection: Binding(
+                get: { viewModel.selectedEntryID },
+                set: { newValue in
+                    guard let newValue else { return }
+                    Task { await viewModel.select(entryID: newValue) }
+                }
+            ))
+            .padding(.vertical, 8)
+            .background(.bar)
+        )
     }
 
     /// 顶部搜索框：直接在当前源里搜（不少插件只有搜索入口）
@@ -141,7 +145,9 @@ struct HomeView: View {
                 sourceID: viewModel.selectedSourceID ?? "",
                 isLoading: list.isLoading,
                 hasReachedMax: list.hasReachedMax,
-                loadMore: { Task { await list.loadMore() } }
+                loadMore: { Task { await list.loadMore() } },
+                leading: AnyView(ContinueReadingStrip()),
+                pinnedHeader: pinnedEntryStrip
             )
             // 取数失败时给出提示，否则点了入口像是没反应
             .overlay {
@@ -156,23 +162,29 @@ struct HomeView: View {
 
         case .page(let page):
             ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(page.title)
-                        .font(.subheadline.weight(.semibold))
-                        .padding(.horizontal, AppTheme.Spacing.page)
-                        .padding(.top, 12)
+                LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
+                    Section {
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text(page.title)
+                                .font(.subheadline.weight(.semibold))
+                                .padding(.horizontal, AppTheme.Spacing.page)
+                                .padding(.top, 12)
 
-                    if let loaded = page.page {
-                        FunctionPageContent(sourceID: page.sourceID, page: loaded)
-                    } else if let message = page.errorMessage {
-                        ContentUnavailableView(
-                            "加载失败",
-                            systemImage: "exclamationmark.triangle",
-                            description: Text(message)
-                        )
-                        .padding(.top, 40)
-                    } else {
-                        ProgressView().padding(.top, 40).frame(maxWidth: .infinity)
+                            if let loaded = page.page {
+                                FunctionPageContent(sourceID: page.sourceID, page: loaded)
+                            } else if let message = page.errorMessage {
+                                ContentUnavailableView(
+                                    "加载失败",
+                                    systemImage: "exclamationmark.triangle",
+                                    description: Text(message)
+                                )
+                                .padding(.top, 40)
+                            } else {
+                                ProgressView().padding(.top, 40).frame(maxWidth: .infinity)
+                            }
+                        }
+                    } header: {
+                        pinnedEntryStrip
                     }
                 }
             }

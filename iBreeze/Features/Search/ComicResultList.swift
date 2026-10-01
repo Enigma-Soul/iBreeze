@@ -6,24 +6,38 @@ struct ComicResultList: View {
     let isLoading: Bool
     let hasReachedMax: Bool
     let loadMore: () -> Void
+    /// 跟着列表一起滚走的头部（首页的「继续阅读」）
+    var leading: AnyView? = nil
+    /// 滚到顶后钉住的头部（入口选项卡）。首页靠它做到「划到插件图标那一行就固定」
+    var pinnedHeader: AnyView? = nil
 
     var body: some View {
         ScrollView {
-            LazyVStack(spacing: 0) {
-                ForEach(items) { sourced in
-                    NavigationLink(value: AppRoute.comicDetail(sourceID: sourced.sourceID, comicID: sourced.item.id)) {
-                        ComicListRow(item: sourced.item, sourceID: sourced.sourceID)
-                    }
-                    .buttonStyle(.plain)
+            LazyVStack(spacing: 0, pinnedViews: pinnedHeader == nil ? [] : [.sectionHeaders]) {
+                leading
 
-                    Divider().padding(.leading, 88)
+                Section {
+                    rows
+                        .padding(.horizontal, AppTheme.Spacing.page)
+                    footer
+                } header: {
+                    // 横向内边距留给各行，选项卡条自己带内边距，钉住时才能铺满整宽
+                    pinnedHeader
                 }
             }
-            .padding(.horizontal, AppTheme.Spacing.page)
-
-            footer
         }
         .tracksTabBarVisibility()
+    }
+
+    private var rows: some View {
+        ForEach(items) { sourced in
+            NavigationLink(value: AppRoute.comicDetail(sourceID: sourced.sourceID, comicID: sourced.item.id)) {
+                ComicListRow(item: sourced.item, sourceID: sourced.sourceID)
+            }
+            .buttonStyle(.plain)
+
+            Divider().padding(.leading, 88)
+        }
     }
 
     @ViewBuilder
