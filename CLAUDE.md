@@ -120,6 +120,11 @@ through `PluginSource.imageBytes` via `ComicImageLoader` (memory + disk, keyed b
   `00_bootstrap` reads at load time; reversing them breaks startup.
 - **Binary crosses the bus as base64**: arguments send byte arrays, returns are wrapped as
   `{ "__ibreezeBinary": "<base64>" }`. Use `invokeData` / `invoke(_:fnPath:)` accordingly.
+- **`__invokePlugin` carries a call handle and `__nativeInvokeResolve(handle, ok, payload)` must echo
+  it back.** `PluginRuntime` runs many invokes concurrently (the reader prefetches 7 pages, a list
+  loads a dozen covers). Dispatching the callback by "whoever installed last wins" orphans every
+  earlier waiter — images spin forever. The same applies to `PluginRegistry.source(for:)`, which
+  must not build a second JSContext while the first is still loading.
 - **`extern` round-trips**: whatever a plugin returns as `extern` must be sent back on the next
   call in the same context.
 - Contract models are deliberately lenient (`JSONValue`, optionals) — real plugins deviate from

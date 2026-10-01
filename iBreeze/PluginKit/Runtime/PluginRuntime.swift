@@ -10,6 +10,7 @@ final class PluginRuntime: @unchecked Sendable {
     private let executor: PluginRuntimeThread
     private let host: PluginHostBridge
     private let timers = PluginTimerCenter()
+    private let invocations = PluginInvocationRegistry()
     private let logger = Logger(subsystem: "com.enigma-soul.ibreeze", category: "PluginRuntime")
     private var context: JSContext?
 
@@ -27,6 +28,7 @@ final class PluginRuntime: @unchecked Sendable {
 
         try await run { [self] in
             timers.cancelAll()
+            invocations.failAll(with: PluginError.runtimeNotLoaded)
             context = nil
 
             let context = try Self.makeContext()
@@ -63,20 +65,25 @@ final class PluginRuntime: @unchecked Sendable {
         }
     }
 
-    /// 调用插件的某个 `fnPath`，返回结果的 JSON 文本
+    /// 调用插件的某个 `fnPath`，返回结果的 JSON 文本。
+    ///
+    /// 每次调用都带一个自增句柄，回调按句柄找回自己的等待者。JS 侧只有一个
+    /// `__nativeInvokeResolve` 入口，若按「谁最后装谁生效」来分发，并发调用
+    /// （阅读页一次预取 7 页、列表里十几张封面）就会互相顶掉回调，先发出的那些
+    /// 永远等不到结果——表现就是图片一直转圈。
     func invoke(fnPath: String, payloadJSON: String = "{}") async throws -> String {
-        let waiter = JSInvocationWaiter()
+        let (callID, waiter) = invocations.register()
 
-        try await run { [self] in
-            guard let context else { throw PluginError.runtimeNotLoaded }
-
-            let resolve: @convention(block) (Bool, String) -> Void = { ok, payload in
-                waiter.finish(ok ? .success(payload) : .failure(PluginError.pluginThrew(payload)))
+        do {
+            try await run { [self] in
+                guard let context else { throw PluginError.runtimeNotLoaded }
+                context.objectForKeyedSubscript("__invokePlugin")?
+                    .call(withArguments: [fnPath, payloadJSON, NSNumber(value: callID)])
+                try Self.throwIfException(context)
             }
-            context.setObject(resolve, forKeyedSubscript: "__nativeInvokeResolve" as NSString)
-
-            context.objectForKeyedSubscript("__invokePlugin")?.call(withArguments: [fnPath, payloadJSON])
-            try Self.throwIfException(context)
+        } catch {
+            invocations.remove(id: callID)
+            throw error
         }
 
         return try await waiter.wait()
@@ -118,6 +125,7 @@ final class PluginRuntime: @unchecked Sendable {
     func shutdown() async {
         try? await run { [self] in
             timers.cancelAll()
+            invocations.failAll(with: PluginError.runtimeNotLoaded)
             context = nil
         }
         executor.stop()
@@ -128,6 +136,15 @@ final class PluginRuntime: @unchecked Sendable {
     private func installNativeFunctions(on context: JSContext) {
         installHostHooks(on: context)
         installTimerHooks(on: context)
+
+        let resolveInvocation: @convention(block) (NSNumber, Bool, String) -> Void = { [weak self] handle, ok, payload in
+            guard let self else { return }
+            invocations.finish(
+                id: handle.intValue,
+                result: ok ? .success(payload) : .failure(PluginError.pluginThrew(payload))
+            )
+        }
+        context.setObject(resolveInvocation, forKeyedSubscript: "__nativeInvokeResolve" as NSString)
 
         let nativeLog: @convention(block) (String, String) -> Void = { [weak self] level, message in
             self?.logger.debug("[\(level, privacy: .public)] \(message, privacy: .public)")
@@ -248,7 +265,7 @@ final class PluginRuntime: @unchecked Sendable {
 }
 
 /// 把 JS 的一次性回调桥接成 Swift async 等待
-private final class JSInvocationWaiter: @unchecked Sendable {
+final class JSInvocationWaiter: @unchecked Sendable {
     private let lock = NSLock()
     private var continuation: CheckedContinuation<String, Error>?
     private var settled: Result<String, Error>?

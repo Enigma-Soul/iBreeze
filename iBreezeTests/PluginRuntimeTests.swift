@@ -21,6 +21,10 @@ module.exports = {
         bridge.callSync("cache.set.sync", "sync-key", { value: 42 });
         return bridge.callSync("cache.get.sync", "sync-key", null);
     },
+    async echoSlow(payload) {
+        await new Promise((resolve) => setTimeout(resolve, payload.delayMs));
+        return { tag: payload.tag };
+    },
     boom() {
         throw new Error("插件内部错误");
     }
@@ -115,6 +119,32 @@ struct PluginRuntimeTests {
         let json = try await runtime.invoke(fnPath: "syncRoundTrip")
 
         #expect(json.contains("42"))
+    }
+
+    /// 取图并发时最容易踩：一次预取 7 页、列表十几张封面同时进来，
+    /// 回调若不按句柄分发，先发出的那些会永远等不到结果（表现为图片一直转圈）
+    @Test("并发调用各自拿到结果")
+    func concurrentInvocations() async throws {
+        let runtime = try await makeRuntime()
+
+        let tags = try await withThrowingTaskGroup(of: String.self) { group in
+            // 先发的后返回，顺序打乱才暴露「回调被后一次顶掉」
+            for (tag, delayMs) in [("a", 60), ("b", 40), ("c", 20), ("d", 0)] {
+                group.addTask {
+                    let object = try await runtime.invokeObject(
+                        fnPath: "echoSlow",
+                        payloadJSON: #"{"tag":"\#(tag)","delayMs":\#(delayMs)}"#
+                    )
+                    return object["tag"] as? String ?? ""
+                }
+            }
+
+            var collected: [String] = []
+            for try await tag in group { collected.append(tag) }
+            return collected.sorted().joined()
+        }
+
+        #expect(tags == "abcd")
     }
 
     @Test("插件抛错转成 Swift 错误")

@@ -129,7 +129,7 @@ actor ComicImageLoader {
         // 超时或网络抖动时重试一次，图源慢的时候很有用
         for attempt in 0..<2 {
             do {
-                let data = try await withTimeout(seconds: timeout) {
+                let data = try await withTimeout(seconds: timeout * Self.backstopMultiplier) {
                     try await source.imageBytes(url: url, extern: extern, timeoutMs: timeout * 1000)
                 }
                 guard let decoded = UIImage(data: data) else {
@@ -157,6 +157,13 @@ actor ComicImageLoader {
 
         return .failure(lastError)
     }
+
+    /// 宿主兜底超时相对 `timeoutMs` 的倍数。
+    ///
+    /// 插件内部会按 `timeoutMs` 掐断并自己重试若干次，宿主这层只是「彻底卡在 JS 里」
+    /// 的兜底。取太紧的话，宿主提前放弃、槽位让给别人，而 JS 线程还被旧请求占着——
+    /// 结果就是一张慢图把整个取图通道堵死。
+    private static let backstopMultiplier = 4
 
     /// 宿主侧兜底超时：插件自己也有 timeoutMs，但卡在 JS 里时得由这里掐断
     private func withTimeout<T: Sendable>(

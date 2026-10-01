@@ -78,6 +78,10 @@ module.exports = {
       uuidLength: crypto.randomUUID().length,
     };
   },
+  async echoSlow({ tag, delayMs }) {
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+    return { tag };
+  },
   boom() {
     throw new Error("插件内部错误");
   },
@@ -271,6 +275,18 @@ check("fetch 错误路径", fetchResult.failed === true, JSON.stringify(fetchRes
 
 const binary = JSON.parse(await runtime.invoke("binary"));
 check("二进制信封", typeof binary.__ibreezeBinary === "string" && atob(binary.__ibreezeBinary).length === 4, JSON.stringify(binary));
+
+// 并发调用：回调必须按句柄找回自己那一次。顺序打乱（越早发起越晚返回）
+// 正是取图并发的样子，回调若按「最后装入的等待者」分发就会全部错位。
+const concurrent = await Promise.all(
+  [
+    { tag: "a", delayMs: 60 },
+    { tag: "b", delayMs: 40 },
+    { tag: "c", delayMs: 20 },
+    { tag: "d", delayMs: 0 },
+  ].map((payload) => runtime.invoke("echoSlow", payload).then(JSON.parse))
+);
+check("并发调用各自拿到结果", concurrent.map((item) => item.tag).join("") === "abcd", JSON.stringify(concurrent));
 
 const crypto = JSON.parse(await runtime.invoke("cryptoRoundTrip"));
 check(

@@ -66,8 +66,16 @@
     globalThis.__pluginExports = exported;
   };
 
-  // 宿主调用：执行某个 fnPath，结果通过 __nativeInvokeResolve 异步回传
-  globalThis.__invokePlugin = function (fnPath, payloadJson) {
+  // 宿主调用：执行某个 fnPath，结果通过 __nativeInvokeResolve 异步回传。
+  //
+  // 句柄原样回传：宿主可能同时发起多个调用（取图并发），回调必须能找回自己那一次。
+  globalThis.__invokePlugin = function (fnPath, payloadJson, handle) {
+    var callID = Number(handle) || 0;
+
+    function settle(ok, payload) {
+      __nativeInvokeResolve(callID, ok, payload);
+    }
+
     try {
       var fn = pluginExports[fnPath];
       if (typeof fn !== "function") {
@@ -75,14 +83,14 @@
       }
       Promise.resolve(fn(host.parse(payloadJson))).then(
         function (result) {
-          __nativeInvokeResolve(true, host.stringify(result));
+          settle(true, host.stringify(result));
         },
         function (error) {
-          __nativeInvokeResolve(false, host.describe(error));
+          settle(false, host.describe(error));
         }
       );
     } catch (error) {
-      __nativeInvokeResolve(false, host.describe(error));
+      settle(false, host.describe(error));
     }
   };
 })();

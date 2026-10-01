@@ -271,6 +271,14 @@ export function createRuntime({ http = "stub", stubFile = process.env.HARNESS_ST
     timers.delete(id);
   };
 
+  // 与 PluginRuntime 一致：回调按调用句柄分发，并发调用不会互相顶掉
+  context.__nativeInvokeResolve = (handle, ok, payloadJson) => {
+    const entry = pendingCalls.get(handle);
+    if (!entry) return;
+    pendingCalls.delete(handle);
+    ok ? entry.resolve(payloadJson) : entry.reject(new Error(payloadJson));
+  };
+
   for (const name of INJECTION_ORDER) {
     const source = readFileSync(join(runtimeDir, `${name}.js`), "utf8");
     runInContext(source, context, { filename: `${name}.js` });
@@ -285,13 +293,10 @@ export function createRuntime({ http = "stub", stubFile = process.env.HARNESS_ST
       return new Promise((resolve, reject) => {
         const id = nextCallId++;
         pendingCalls.set(id, { resolve, reject });
-        context.__nativeInvokeResolve = (ok, payloadJson) => {
-          const entry = pendingCalls.get(id);
-          if (!entry) return;
-          pendingCalls.delete(id);
-          ok ? entry.resolve(payloadJson) : entry.reject(new Error(payloadJson));
-        };
-        runInContext(`__invokePlugin(${JSON.stringify(fnPath)}, ${JSON.stringify(JSON.stringify(payload))})`, context);
+        runInContext(
+          `__invokePlugin(${JSON.stringify(fnPath)}, ${JSON.stringify(JSON.stringify(payload))}, ${id})`,
+          context,
+        );
       });
     },
   };
