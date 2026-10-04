@@ -23,7 +23,7 @@ Authoritative external references (check these instead of guessing at a contract
 There is no local macOS toolchain — **CI is the build**. Push to `develop` and read the run:
 
 ```
-git push origin develop    # macos-26 → xcodegen → xcodebuild test → unsigned iPA artifact
+git push origin develop    # macos-26 → xcodegen → xcodebuild test → unsigned ipa artifact
 gh run watch               # or: gh run view <id> --log-failed
 ```
 
@@ -73,6 +73,16 @@ The harness re-execs itself with `NODE_USE_ENV_PROXY=1` when `HTTP_PROXY` is set
 ignores it otherwise), so real-network runs work behind a local proxy. Use it before pushing
 whenever you touch the JS layer.
 
+Test suites in `iBreezeTests/` are split by layer — put new tests where they belong:
+
+| suite | covers |
+| --- | --- |
+| `PluginCryptoTests` | digests, HMAC, PBKDF2, AES-CBC/GCM vectors (checked against Node's `crypto`) |
+| `PluginRuntimeTests` | the runtime and web shims: injection, `bridge`, timers, binary envelopes, concurrent invokes, `ComicListScene` decoding |
+| `PluginLoginTests` | `PluginError.fromPluginPayload` brace scanning (incl. the shim's stack suffix) and the unauthorized path end to end |
+| `PluginInstallTests` | installer channels, uuid mismatch, version comparison |
+| `PluginSmokeTests` | opt-in; real network and real bundles |
+
 ## Architecture
 
 ### Plugin call chain (spans several files)
@@ -94,7 +104,8 @@ UI (Features/*)
 Bus: Swift installs `__nativeCall` / `__nativeCallSync` / `__nativeLog` / `__nativeTimer*` on the
 JSContext; JS invokes routes by name, Swift resolves them back on the JS thread.
 
-JS injection order (`PluginJSLayer.scriptNames`) — the order is load-bearing:
+JS injection order, assembled once per process by `PluginJSLayer.injectionScript()` — the order is
+load-bearing:
 
 ```
 10_ibreeze_native_shim   host bus, byte-buffer pool, base64, crypto/timer/http hooks
@@ -111,7 +122,23 @@ source glob; vendored files keep their upstream form, provenance in that folder'
 `PluginRepository` (cloud list) → `PluginInstaller` (jsDelivr mirrors → GitHub Release fallback;
 loads the bundle in a throwaway runtime and reads `getInfo()` as the authoritative uuid/version,
 rejecting mismatches) → `PluginStore` (bundle to `Application Support/Plugins/<uuid>.cjs`,
-metadata in `index.json`).
+metadata in `index.json`). Transport is behind the `PluginDownloading` protocol
+(`URLSessionDownloader`), so installer tests inject a stub instead of hitting the network.
+
+### Where state lives
+
+Four separate places, and picking the wrong one is an easy mistake:
+
+- **`Core/Storage/*`** — app-owned user data (`FavoritesStore`, `ReadingHistoryStore`,
+  `SearchHistoryStore`), all built on `JSONFileStore<T>` (one JSON file per store). Add new
+  persistence here rather than inventing another path.
+- **`PluginConfigStore`** — **content plugins own this**, UserDefaults-backed under
+  `plugin.config.<uuid>`. Plugins read/write it through `load_plugin_config` /
+  `save_plugin_config`; the host's `PluginSource.saveSetting` exists only so the generic settings
+  UI can write the same keys.
+- **`ComicImageLoader`** — memory (NSCache) + disk cache of decoded images, keyed by
+  `sha256(uuid | url | extern)`.
+- **`@AppStorage` / `SettingsKey`** (`Core/AppSettings.swift`) — host settings only.
 
 ### UI
 
@@ -175,6 +202,9 @@ and cards inside function pages.
   the docs, so make decoding tolerant instead of strict.
 - Deployment target is iOS 18; Liquid Glass APIs (`glassEffect`, `tabBarMinimizeBehavior`) are
   iOS 26-only and must stay behind `if #available(iOS 26.0, *)` — see `DesignSystem/GlassStyle.swift`.
+- **Two independent icons.** `Docs/icon-512.png` is only the README banner; the app icon is
+  `iBreeze/Resources/Assets.xcassets/AppIcon.appiconset/icon-1024.png` (regenerate with
+  `Tools/prepare-app-icon.mjs <source.png>`, which strips alpha). Changing one does not change the other.
 
 ## Conventions
 
