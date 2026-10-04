@@ -32,7 +32,8 @@ gh run watch               # or: gh run view <id> --log-failed
 cuts that block out as the release body, and attaches the ipa. Opening or updating the PR does
 not release, and an already-existing tag makes the job skip. The build job passes
 `MARKETING_VERSION` (from the CHANGELOG) and `CURRENT_PROJECT_VERSION` (= run number) to
-xcodebuild, so the ipa's version always matches the tag.
+xcodebuild, so the ipa's version always matches the tag. `project.yml` only holds the fallback for
+local builds — keep it in sync with the CHANGELOG (see Conventions).
 
 With Xcode available:
 
@@ -222,6 +223,11 @@ and cards inside function pages.
   ipa's `MARKETING_VERSION` and the release tag. Bump it in the same PR that ships the change;
   one `develop → main` PR should add exactly one version block, or the release for the earlier
   PR wins the tag and the later one is skipped.
+- **Bump `project.yml`'s `MARKETING_VERSION` in every PR, so it equals the top of the CHANGELOG.**
+  It is only a fallback — CI feeds xcodebuild the CHANGELOG version — but it's what the generated
+  project carries, so leaving it behind makes 设置 → 关于 → 版本 show a stale number for anyone
+  building locally. Leave `CURRENT_PROJECT_VERSION` alone: it is a build number, and CI replaces it
+  with the workflow run number.
 - Release notes follow the owner's CHANGELOG format (newest version block on top, grouped by
   `### Feat(scope)` / `### Fix(scope)` / `### Refactor` / `### Chore`, Chinese bullets that say
   what changed for the user rather than a per-file diff).
