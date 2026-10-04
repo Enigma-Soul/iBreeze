@@ -25,24 +25,23 @@ struct HistoryView: View {
         }
     }
 
+    /// 用 `List` 而不是 `ScrollView` + `LazyVStack`：左滑删除是 `swipeActions` 的能力，
+    /// 而它只在 `List` 里生效。分隔线用 `listRowSeparatorLeading` 对齐到文字列，
+    /// 省掉原来手写的那条 Divider
     private var list: some View {
-        ScrollView {
-            LazyVStack(spacing: 0) {
-                ForEach(history.entries) { entry in
-                    // 与「继续阅读」一样先进详情页：直接续读会跳过封面与章节选择
-                    NavigationLink(value: AppRoute.comicDetail(sourceID: entry.source, comicID: entry.comicID)) {
-                        row(for: entry)
-                    }
-                    .buttonStyle(.plain)
-                    .contextMenu {
-                        Button("删除记录", role: .destructive) { history.remove(entry) }
-                    }
-
-                    Divider().padding(.leading, AppTheme.Size.listThumbnail.width + 12)
+        List {
+            ForEach(history.entries) { entry in
+                // 与「继续阅读」一样先进详情页：直接续读会跳过封面与章节选择
+                NavigationLink(value: AppRoute.comicDetail(sourceID: entry.source, comicID: entry.comicID)) {
+                    row(for: entry)
+                }
+                .alignmentGuide(.listRowSeparatorLeading) { _ in AppTheme.Size.listThumbnail.width + 12 }
+                .swipeActions(edge: .trailing) {
+                    Button("删除", role: .destructive) { history.remove(entry) }
                 }
             }
-            .padding(.horizontal, AppTheme.Spacing.page)
         }
+        .listStyle(.plain)
     }
 
     private func row(for entry: ReadingHistoryEntry) -> some View {
