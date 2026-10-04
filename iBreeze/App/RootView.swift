@@ -1,10 +1,10 @@
 import SwiftUI
 
-/// 根视图：首页 / 搜索 / 收藏 / 设置，底栏交给系统 `TabView`。
+/// 根视图：底栏交给系统 `TabView`。
 ///
-/// 之前是自绘玻璃条 + ZStack 透明度切页，为的是把设置拆成独立一颗钮；现在四个
-/// 标签平铺，直接用系统标签栏就能拿到 iOS 26 的液态玻璃与「下滚收起」，
-/// 也省掉自己补无障碍与点按区域的活。
+/// 四个标签里只有搜索用 `role: .search` 声明——系统会把它和前三项隔开、
+/// 单独摆到最右边（Pixiv-SwiftUI 就是这种排法）。设置不再是标签页，
+/// 改成首页右上角的齿轮，点开是一个抽屉。
 struct RootView: View {
     @State private var selection: AppTab = .home
     @AppStorage(SettingsKey.appearance) private var appearance = AppearanceMode.system.rawValue
@@ -15,10 +15,25 @@ struct RootView: View {
         @Bindable var login = login
 
         return TabView(selection: $selection) {
-            ForEach(AppTab.allCases) { tab in
-                Tab(tab.title, systemImage: tab.systemImage, value: tab) {
-                    page(for: tab)
-                }
+            Tab(AppTab.home.title, systemImage: AppTab.home.systemImage, value: AppTab.home) {
+                HomeView()
+            }
+
+            Tab(AppTab.history.title, systemImage: AppTab.history.systemImage, value: AppTab.history) {
+                HistoryView()
+            }
+
+            Tab(AppTab.favorites.title, systemImage: AppTab.favorites.systemImage, value: AppTab.favorites) {
+                FavoritesView()
+            }
+
+            Tab(
+                AppTab.search.title,
+                systemImage: AppTab.search.systemImage,
+                value: AppTab.search,
+                role: .search
+            ) {
+                SearchView()
             }
         }
         .minimizesTabBarOnScroll()
@@ -32,16 +47,6 @@ struct RootView: View {
             )
         }
         .preferredColorScheme(AppearanceMode(rawValue: appearance)?.colorScheme)
-    }
-
-    @ViewBuilder
-    private func page(for tab: AppTab) -> some View {
-        switch tab {
-        case .home: HomeView()
-        case .search: SearchView()
-        case .favorites: FavoritesView()
-        case .settings: NavigationStack { SettingsView() }
-        }
     }
 }
 

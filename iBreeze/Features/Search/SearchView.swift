@@ -1,9 +1,10 @@
 import SwiftUI
 
-/// 搜索页：顶部搜索框 + 搜索记录，默认在全部插件里搜。
+/// 搜索页：默认在全部插件里搜，未输入时显示搜索记录。
 ///
-/// 不用系统 `.searchable`：在带自绘底部标签栏的页面上，它会把搜索框放到屏幕底部，
-/// 与浮条叠在一起点不到，所以这里自绘一个置顶的胶囊输入框。
+/// 输入框交给系统 `.searchable`：这一页挂在 `role: .search` 的标签下，
+/// iOS 26 会把整条底栏变成搜索框（Pixiv-SwiftUI 那种形态），
+/// 自己再画一个置顶胶囊框只会多出一份。
 struct SearchView: View {
     @Environment(PluginRegistry.self) private var registry
     @State private var viewModel = SearchViewModel()
@@ -13,12 +14,6 @@ struct SearchView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                SearchField(
-                    text: $viewModel.keyword,
-                    placeholder: "搜索漫画，默认搜全部插件",
-                    onSubmit: submit
-                )
-
                 if viewModel.items.isEmpty {
                     emptyContent
                 } else {
@@ -34,6 +29,8 @@ struct SearchView: View {
             .navigationBarTitleDisplayMode(.inline)
             .appNavigationDestinations()
             .toolbar { sourceMenu }
+            .searchable(text: $viewModel.keyword, prompt: "搜索漫画，默认搜全部插件")
+            .onSubmit(of: .search) { submit() }
         }
     }
 
@@ -120,7 +117,7 @@ struct SearchView: View {
                 .padding(.horizontal, AppTheme.Spacing.page)
             }
             .padding(.vertical, 12)
-        }
+        }
     }
 
     // MARK: - 提交

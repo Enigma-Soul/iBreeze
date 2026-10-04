@@ -23,7 +23,7 @@ Authoritative external references (check these instead of guessing at a contract
 There is no local macOS toolchain — **CI is the build**. Push to `develop` and read the run:
 
 ```
-git push origin develop    # macos-26 → xcodegen → xcodebuild test → unsigned iPA artifact
+git push origin develop    # macos-26 → xcodegen → xcodebuild test → unsigned ipa artifact
 gh run watch               # or: gh run view <id> --log-failed
 ```
 
@@ -32,7 +32,8 @@ gh run watch               # or: gh run view <id> --log-failed
 cuts that block out as the release body, and attaches the ipa. Opening or updating the PR does
 not release, and an already-existing tag makes the job skip. The build job passes
 `MARKETING_VERSION` (from the CHANGELOG) and `CURRENT_PROJECT_VERSION` (= run number) to
-xcodebuild, so the ipa's version always matches the tag.
+xcodebuild, so the ipa's version always matches the tag. `project.yml` only holds the fallback for
+local builds — keep it in sync with the CHANGELOG (see Conventions).
 
 With Xcode available:
 
@@ -73,6 +74,16 @@ The harness re-execs itself with `NODE_USE_ENV_PROXY=1` when `HTTP_PROXY` is set
 ignores it otherwise), so real-network runs work behind a local proxy. Use it before pushing
 whenever you touch the JS layer.
 
+Test suites in `iBreezeTests/` are split by layer — put new tests where they belong:
+
+| suite | covers |
+| --- | --- |
+| `PluginCryptoTests` | digests, HMAC, PBKDF2, AES-CBC/GCM vectors (checked against Node's `crypto`) |
+| `PluginRuntimeTests` | the runtime and web shims: injection, `bridge`, timers, binary envelopes, concurrent invokes, `ComicListScene` decoding |
+| `PluginLoginTests` | `PluginError.fromPluginPayload` brace scanning (incl. the shim's stack suffix) and the unauthorized path end to end |
+| `PluginInstallTests` | installer channels, uuid mismatch, version comparison |
+| `PluginSmokeTests` | opt-in; real network and real bundles |
+
 ## Architecture
 
 ### Plugin call chain (spans several files)
@@ -94,7 +105,8 @@ UI (Features/*)
 Bus: Swift installs `__nativeCall` / `__nativeCallSync` / `__nativeLog` / `__nativeTimer*` on the
 JSContext; JS invokes routes by name, Swift resolves them back on the JS thread.
 
-JS injection order (`PluginJSLayer.scriptNames`) — the order is load-bearing:
+JS injection order, assembled once per process by `PluginJSLayer.injectionScript()` — the order is
+load-bearing:
 
 ```
 10_ibreeze_native_shim   host bus, byte-buffer pool, base64, crypto/timer/http hooks
@@ -111,7 +123,23 @@ source glob; vendored files keep their upstream form, provenance in that folder'
 `PluginRepository` (cloud list) → `PluginInstaller` (jsDelivr mirrors → GitHub Release fallback;
 loads the bundle in a throwaway runtime and reads `getInfo()` as the authoritative uuid/version,
 rejecting mismatches) → `PluginStore` (bundle to `Application Support/Plugins/<uuid>.cjs`,
-metadata in `index.json`).
+metadata in `index.json`). Transport is behind the `PluginDownloading` protocol
+(`URLSessionDownloader`), so installer tests inject a stub instead of hitting the network.
+
+### Where state lives
+
+Four separate places, and picking the wrong one is an easy mistake:
+
+- **`Core/Storage/*`** — app-owned user data (`FavoritesStore`, `ReadingHistoryStore`,
+  `SearchHistoryStore`), all built on `JSONFileStore<T>` (one JSON file per store). Add new
+  persistence here rather than inventing another path.
+- **`PluginConfigStore`** — **content plugins own this**, UserDefaults-backed under
+  `plugin.config.<uuid>`. Plugins read/write it through `load_plugin_config` /
+  `save_plugin_config`; the host's `PluginSource.saveSetting` exists only so the generic settings
+  UI can write the same keys.
+- **`ComicImageLoader`** — memory (NSCache) + disk cache of decoded images, keyed by
+  `sha256(uuid | url | extern)`.
+- **`@AppStorage` / `SettingsKey`** (`Core/AppSettings.swift`) — host settings only.
 
 ### UI
 
@@ -121,7 +149,11 @@ through `PluginSource.imageBytes` via `ComicImageLoader` (memory + disk, keyed b
 `PluginImageView`. Plugin-declared settings are rendered generically by `PluginSettingsView` from
 `getSettingsBundle`, and any user-facing text from a plugin is passed through `.convertedChinese`.
 
-The tab bar is a plain system `TabView` (`RootView`, four tabs). A pushed page hides it with
+The tab bar is a plain system `TabView` (`RootView`): 首页 / 历史 / 收藏, plus 搜索 declared as
+`Tab(role: .search)` so the system groups it on the right. `SearchView` binds the system
+`.searchable` (no self-drawn field anywhere) because that is what makes iOS 26 turn the whole tab
+bar into a search field. Settings is deliberately *not* a tab —
+it's the gear in Home's toolbar, which presents `SettingsView` in a sheet. A pushed page hides it with
 `.hidesFloatingTabBar()`, which is now just `.toolbar(.hidden, for: .tabBar)`. `minimizesTabBarOnScroll()`
 in `DesignSystem/GlassStyle.swift` wraps `tabBarMinimizeBehavior(.onScrollDown)` for iOS 26.
 
@@ -175,6 +207,9 @@ and cards inside function pages.
   the docs, so make decoding tolerant instead of strict.
 - Deployment target is iOS 18; Liquid Glass APIs (`glassEffect`, `tabBarMinimizeBehavior`) are
   iOS 26-only and must stay behind `if #available(iOS 26.0, *)` — see `DesignSystem/GlassStyle.swift`.
+- **Two independent icons.** `Docs/icon-512.png` is only the README banner; the app icon is
+  `iBreeze/Resources/Assets.xcassets/AppIcon.appiconset/icon-1024.png` (regenerate with
+  `Tools/prepare-app-icon.mjs <source.png>`, which strips alpha). Changing one does not change the other.
 
 ## Conventions
 
@@ -188,6 +223,11 @@ and cards inside function pages.
   ipa's `MARKETING_VERSION` and the release tag. Bump it in the same PR that ships the change;
   one `develop → main` PR should add exactly one version block, or the release for the earlier
   PR wins the tag and the later one is skipped.
+- **Bump `project.yml`'s `MARKETING_VERSION` in every PR, so it equals the top of the CHANGELOG.**
+  It is only a fallback — CI feeds xcodebuild the CHANGELOG version — but it's what the generated
+  project carries, so leaving it behind makes 设置 → 关于 → 版本 show a stale number for anyone
+  building locally. Leave `CURRENT_PROJECT_VERSION` alone: it is a build number, and CI replaces it
+  with the workflow run number.
 - Release notes follow the owner's CHANGELOG format (newest version block on top, grouped by
   `### Feat(scope)` / `### Fix(scope)` / `### Refactor` / `### Chore`, Chinese bullets that say
   what changed for the user rather than a per-file diff).

@@ -48,7 +48,9 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.enigma-soul.ibreeze
         PRODUCT_NAME: iBreeze
-        MARKETING_VERSION: "0.1.0"
+        # 本地构建的兜底版本号，必须与 CHANGELOG.md 顶部的版本块一致（每次开 PR 前改）；
+        # CI 会用 CHANGELOG 的版本覆盖它，并把 CURRENT_PROJECT_VERSION 换成运行序号
+        MARKETING_VERSION: "0.1.1"
         CURRENT_PROJECT_VERSION: "1"
         TARGETED_DEVICE_FAMILY: "1,2"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
