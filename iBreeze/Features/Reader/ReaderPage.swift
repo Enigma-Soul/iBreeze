@@ -177,6 +177,8 @@ struct ReaderPage: View {
 
     // MARK: - 两种翻页
 
+    /// 纵向连续：把每一页标成滚动目标，页码与底部滑杆才认得出「现在在第几页」。
+    /// 少了这行 `scrollPosition.viewID` 恒为 nil，进度条会一直停在 1，拖它也跳不动
     private var continuousReader: some View {
         ScrollView(.vertical) {
             LazyVStack(spacing: 0) {
@@ -195,6 +197,7 @@ struct ReaderPage: View {
                     .id(page.id)
                 }
             }
+            .scrollTargetLayout()
         }
         .scrollPosition($scrollPosition)
         .onScrollPhaseChange { _, phase in
