@@ -1,20 +1,19 @@
 import Foundation
 
-/// 底部标签页
-enum AppTab: String, CaseIterable, Identifiable, Hashable {
+/// 底部标签页。顺序与摆位在 `RootView` 里声明——首页 / 历史 / 收藏平铺，
+/// 最后一项搜索带 `role: .search`，系统会把它单独摆到最右边
+enum AppTab: Hashable {
     case home
-    case search
+    case history
     case favorites
-    case settings
-
-    var id: String { rawValue }
+    case search
 
     var title: String {
         switch self {
         case .home: "首页"
-        case .search: "搜索"
+        case .history: "历史"
         case .favorites: "收藏"
-        case .settings: "设置"
+        case .search: "搜索"
         }
     }
 
@@ -22,9 +21,9 @@ enum AppTab: String, CaseIterable, Identifiable, Hashable {
     var systemImage: String {
         switch self {
         case .home: "house"
-        case .search: "magnifyingglass"
+        case .history: "clock.arrow.circlepath"
         case .favorites: "heart"
-        case .settings: "gearshape"
+        case .search: "magnifyingglass"
         }
     }
 }

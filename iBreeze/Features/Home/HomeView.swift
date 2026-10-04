@@ -7,6 +7,8 @@ import SwiftUI
 struct HomeView: View {
     @Environment(PluginRegistry.self) private var registry
     @State private var viewModel = HomeViewModel()
+    /// 设置不再是标签页，改成首页右上角齿轮拉出来的抽屉
+    @State private var showsSettings = false
 
     var body: some View {
         NavigationStack {
@@ -18,10 +20,23 @@ struct HomeView: View {
                 .appNavigationDestinations()
                 .toolbar { toolbarContent }
         }
+        .sheet(isPresented: $showsSettings) { settingsDrawer }
         .task { await viewModel.reload() }
         .onChange(of: registry.installed.map(\.uuid)) { _, _ in
             Task { await viewModel.reload() }
         }
+    }
+
+    private var settingsDrawer: some View {
+        NavigationStack {
+            SettingsView()
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("完成") { showsSettings = false }
+                    }
+                }
+        }
+        .presentationDragIndicator(.visible)
     }
 
     // MARK: - 顶部
@@ -61,7 +76,10 @@ struct HomeView: View {
         )
     }
 
-    /// 钉住用的入口选项卡；只有一个入口时返回 nil，列表也就不会启用钉住
+    /// 钉住用的入口选项卡；只有一个入口时返回 nil，列表也就不会启用钉住。
+    ///
+    /// 背景用实色而不是 `.bar`：钉在这里的是一条选项卡，底下没有需要透出来的内容，
+    /// 液态玻璃反而让「排行榜」这类文字压在滚过去的封面上，看着发糊
     private var pinnedEntryStrip: AnyView? {
         guard viewModel.entries.count > 1 else { return nil }
 
@@ -74,7 +92,7 @@ struct HomeView: View {
                 }
             ))
             .padding(.vertical, 8)
-            .background(.bar)
+            .background(Color(uiColor: .systemBackground))
         )
     }
 
@@ -121,6 +139,13 @@ struct HomeView: View {
                 }
             }
         }
+
+        ToolbarItem(placement: .topBarTrailing) {
+            Button { showsSettings = true } label: {
+                Image(systemName: "gearshape")
+            }
+            .accessibilityLabel("设置")
+        }
     }
 
     // MARK: - 内容
@@ -131,7 +156,7 @@ struct HomeView: View {
             ContentUnavailableView(
                 "还没有安装插件",
                 systemImage: "puzzlepiece.extension",
-                description: Text("去「设置 → 插件管理」安装后即可浏览")
+                description: Text("点右上角齿轮进「插件管理」安装后即可浏览")
             )
         } else if let source = viewModel.selectedSource, viewModel.selectedSourceNeedsSearch {
             ContentUnavailableView {
@@ -159,7 +184,6 @@ struct HomeView: View {
                 isLoading: list.isLoading,
                 hasReachedMax: list.hasReachedMax,
                 loadMore: { Task { await list.loadMore() } },
-                leading: AnyView(ContinueReadingStrip()),
                 pinnedHeader: pinnedEntryStrip,
                 // 取数失败时给出提示，否则点了入口像是没反应
                 emptyState: Self.loadFailure(list.errorMessage)
@@ -168,9 +192,6 @@ struct HomeView: View {
         case .page(let page):
             ScrollView {
                 LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
-                    // 功能页也是首页的一部分，阅读记录同样要在这里
-                    ContinueReadingStrip()
-
                     Section {
                         VStack(alignment: .leading, spacing: 0) {
                             Text(page.title)
