@@ -1,9 +1,10 @@
 import SwiftUI
 
-/// 置顶搜索框。
+/// 置顶搜索框，给插件内搜索页（`PluginSearchPage`）用。
 ///
-/// 不用系统 `.searchable`：在带自绘底部标签栏的页面上，它会把搜索框放到屏幕底部，
-/// 与浮条叠在一起点不到。
+/// 全局搜索已经交给系统的搜索标签（`.searchable` + `role: .search`，底栏直接变成
+/// 搜索框）；插件内搜索是推进来的普通页面，标题就是插件名，再挂一次 `.searchable`
+/// 会和标题抢位置，也不方便带关键词进来直接搜，所以这里仍自绘一个常驻输入框。
 struct SearchField: View {
     @Binding var text: String
     let placeholder: String

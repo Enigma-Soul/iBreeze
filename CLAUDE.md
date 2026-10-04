@@ -149,7 +149,9 @@ through `PluginSource.imageBytes` via `ComicImageLoader` (memory + disk, keyed b
 `getSettingsBundle`, and any user-facing text from a plugin is passed through `.convertedChinese`.
 
 The tab bar is a plain system `TabView` (`RootView`): 首页 / 历史 / 收藏, plus 搜索 declared as
-`Tab(role: .search)` so the system groups it on the right. Settings is deliberately *not* a tab —
+`Tab(role: .search)` so the system groups it on the right. `SearchView` binds the system
+`.searchable` (no self-drawn field anywhere) because that is what makes iOS 26 turn the whole tab
+bar into a search field. Settings is deliberately *not* a tab —
 it's the gear in Home's toolbar, which presents `SettingsView` in a sheet. A pushed page hides it with
 `.hidesFloatingTabBar()`, which is now just `.toolbar(.hidden, for: .tabBar)`. `minimizesTabBarOnScroll()`
 in `DesignSystem/GlassStyle.swift` wraps `tabBarMinimizeBehavior(.onScrollDown)` for iOS 26.

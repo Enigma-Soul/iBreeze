@@ -41,22 +41,18 @@ struct HomeView: View {
 
     // MARK: - 顶部
 
-    /// 固定层：搜索框 + 插件图标。入口选项卡不在这里——它跟着内容滚，
+    /// 固定层：插件图标。入口选项卡不在这里——它跟着内容滚，
     /// 划到这一行才钉住（见 `pinnedEntryStrip`）
     @ViewBuilder
     private var sourceBar: some View {
         if !viewModel.sources.isEmpty {
-            VStack(spacing: 10) {
-                searchField
-
-                SourceTabStrip(sources: viewModel.sources, selection: Binding(
-                    get: { viewModel.selectedSourceID },
-                    set: { newValue in
-                        guard let newValue else { return }
-                        Task { await viewModel.select(sourceID: newValue) }
-                    }
-                ))
-            }
+            SourceTabStrip(sources: viewModel.sources, selection: Binding(
+                get: { viewModel.selectedSourceID },
+                set: { newValue in
+                    guard let newValue else { return }
+                    Task { await viewModel.select(sourceID: newValue) }
+                }
+            ))
             .padding(.top, 8)
             .padding(.bottom, 10)
             .background(.bar)
@@ -94,30 +90,6 @@ struct HomeView: View {
             .padding(.vertical, 8)
             .background(Color(uiColor: .systemBackground))
         )
-    }
-
-    /// 顶部搜索框：直接在当前源里搜（不少插件只有搜索入口）
-    @ViewBuilder
-    private var searchField: some View {
-        if let source = viewModel.selectedSource {
-            NavigationLink {
-                PluginSearchPage(sourceID: source.uuid, sourceName: source.name, initialKeyword: "")
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "magnifyingglass")
-                        .foregroundStyle(.secondary)
-                    Text("在 \(source.name) 中搜索")
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                }
-                .font(.subheadline)
-                .padding(.horizontal, 14)
-                .frame(height: 38)
-                .background(Capsule().fill(Color(uiColor: .tertiarySystemFill)))
-                .padding(.horizontal, AppTheme.Spacing.page)
-            }
-            .buttonStyle(.plain)
-        }
     }
 
     /// 当前列表带筛选器时（排行榜之类）才显示筛选入口
